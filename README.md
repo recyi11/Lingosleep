@@ -24,11 +24,22 @@ The app is designed for relaxed review while resting or falling asleep. It does 
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
+
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env.local` before opening the app.
 
 ## Build
 
 ```bash
 npm run build
 ```
+
+## Infrastructure
+
+- Frontend: React + Vite
+- Hosting: Cloudflare Pages
+- Backend services: Supabase Auth, PostgreSQL, Storage, and Row Level Security
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment and environment details.
