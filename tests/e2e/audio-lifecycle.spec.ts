@@ -8,6 +8,7 @@ declare global {
       gains: FakeGainNode[];
       spoken: FakeSpeechSynthesisUtterance[];
       cancelCount: number;
+      now: number;
     };
   }
 }
@@ -121,10 +122,14 @@ const sessionConfig = {
   backgroundVolume: 0.34,
 };
 
-async function prepareAudioHarness(page: Parameters<Parameters<typeof test>[1]>[0]["page"]) {
-  await page.addInitScript(({ sessionConfig }) => {
+async function prepareAudioHarness(
+  page: Parameters<Parameters<typeof test>[1]>[0]["page"],
+  configOverrides: Partial<typeof sessionConfig> = {}
+) {
+  await page.addInitScript(({ sessionConfig, configOverrides }) => {
+    const testConfig = { ...sessionConfig, ...configOverrides };
     window.localStorage.setItem("lingosleep-onboarded", "true");
-    window.localStorage.setItem("lingosleep-config", JSON.stringify(sessionConfig));
+    window.localStorage.setItem("lingosleep-config", JSON.stringify(testConfig));
 
     window.__audio = {
       contexts: [],
@@ -132,7 +137,13 @@ async function prepareAudioHarness(page: Parameters<Parameters<typeof test>[1]>[
       gains: [],
       spoken: [],
       cancelCount: 0,
+      now: 1000,
     };
+
+    Object.defineProperty(Date, "now", {
+      configurable: true,
+      value: () => window.__audio.now,
+    });
 
     class BrowserFakeAudioParam {
       private currentValue = 0;
@@ -253,7 +264,7 @@ async function prepareAudioHarness(page: Parameters<Parameters<typeof test>[1]>[
         },
       },
     });
-  }, { sessionConfig });
+  }, { sessionConfig, configOverrides });
 }
 
 test("Stop tears down background audio and cancels speech", async ({ page }) => {
@@ -326,6 +337,39 @@ test("Restart after stopping during Recall-mode gap does not resume stale playba
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
     .toEqual(["米饭；餐", "米饭；餐"]);
+});
+
+test("Restart after stopping during fade-out does not let old session stop the new one", async ({ page }) => {
+  await prepareAudioHarness(page, { mode: "Target-language-only immersion" });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["ご飯"]);
+
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["ご飯", "朝ご飯を食べます。"]);
+
+  await page.evaluate(() => {
+    window.__audio.now += 10 * 60 * 1000 + 1;
+    window.__audio.spoken[1]?.onend?.();
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["ご飯", "朝ご飯を食べます。", "Good night."]);
+
+  await page.locator(".round-button").click();
+  await page.locator(".round-button").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["ご飯", "朝ご飯を食べます。", "Good night.", "ご飯"]);
+
+  await page.evaluate(() => window.__audio.spoken[2]?.onend?.());
+  await page.waitForTimeout(800);
+
+  await expect.poll(() => page.evaluate(() => window.__audio.cancelCount)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.sources[1]?.stopCount ?? 0)).toBe(0);
 });
 
 test("Background volume slider controls generated audio gain", async ({ page }) => {

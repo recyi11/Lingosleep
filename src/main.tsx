@@ -663,6 +663,7 @@ function App() {
     }
     if (isSessionActive(sessionToken)) {
       await fadeLanguage(sessionToken);
+      if (!isSessionActive(sessionToken)) return;
       stopSession(true);
     }
   };
