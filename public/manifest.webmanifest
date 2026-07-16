@@ -1,0 +1,17 @@
+{
+  "name": "LingoSleep",
+  "short_name": "LingoSleep",
+  "description": "Nighttime Japanese and Korean vocabulary review.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070b11",
+  "theme_color": "#070b11",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
