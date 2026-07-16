@@ -59,6 +59,8 @@ type VocabItem = {
   lastPlayed?: string;
 };
 
+type PersistedVocabMetadata = Pick<VocabItem, "status" | "favorite" | "timesPlayed" | "lastPlayed">;
+
 type SessionConfig = {
   targetLanguage: TargetLanguage;
   nativeLanguage: NativeLanguage;
@@ -342,6 +344,8 @@ const vocabSeed: VocabItem[] = [
   },
 ];
 
+const familiarityValues: Familiarity[] = ["New", "Learning", "Familiar", "Mastered"];
+
 function loadJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -349,6 +353,32 @@ function loadJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function withDefaultMetadata(item: VocabItem): VocabItem {
+  return { ...item, status: "New", favorite: false, timesPlayed: 0 };
+}
+
+function readPersistedVocabMetadata(stored: unknown): PersistedVocabMetadata {
+  if (!stored || typeof stored !== "object") return {};
+
+  const record = stored as Partial<VocabItem>;
+  const metadata: PersistedVocabMetadata = {};
+
+  if (record.status && familiarityValues.includes(record.status)) {
+    metadata.status = record.status;
+  }
+  if (typeof record.favorite === "boolean") {
+    metadata.favorite = record.favorite;
+  }
+  if (typeof record.timesPlayed === "number" && Number.isFinite(record.timesPlayed) && record.timesPlayed >= 0) {
+    metadata.timesPlayed = record.timesPlayed;
+  }
+  if (typeof record.lastPlayed === "string") {
+    metadata.lastPlayed = record.lastPlayed;
+  }
+
+  return metadata;
 }
 
 function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: number) {
@@ -452,10 +482,10 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
 function App() {
   const [config, setConfig] = useState<SessionConfig>(() => loadJson("lingosleep-config", defaultConfig));
   const [vocab, setVocab] = useState<VocabItem[]>(() => {
-    const stored = loadJson<VocabItem[] | null>("lingosleep-vocab", null);
-    if (!stored) return vocabSeed.map((item) => ({ ...item, status: "New", favorite: false, timesPlayed: 0 }));
+    const stored = loadJson<unknown>("lingosleep-vocab", null);
+    if (!Array.isArray(stored)) return vocabSeed.map(withDefaultMetadata);
     const storedById = new Map(stored.map((item) => [item.id, item]));
-    return vocabSeed.map((item) => ({ ...item, ...storedById.get(item.id) }));
+    return vocabSeed.map((item) => ({ ...withDefaultMetadata(item), ...readPersistedVocabMetadata(storedById.get(item.id)) }));
   });
   const [history, setHistory] = useState<SessionRecord[]>(() => loadJson("lingosleep-history", []));
   const [step, setStep] = useState<"onboarding" | "setup" | "player" | "history" | "quiz">(() =>
