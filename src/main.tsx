@@ -17,6 +17,7 @@ import {
   Volume2,
   Waves,
 } from "lucide-react";
+import { supabase } from "./lib/supabase";
 import "./styles.css";
 
 type TargetLanguage = "Japanese" | "Korean";
@@ -472,6 +473,9 @@ function App() {
   useEffect(() => localStorage.setItem("lingosleep-config", JSON.stringify(config)), [config]);
   useEffect(() => localStorage.setItem("lingosleep-vocab", JSON.stringify(vocab)), [vocab]);
   useEffect(() => localStorage.setItem("lingosleep-history", JSON.stringify(history)), [history]);
+  useEffect(() => {
+    void supabase.auth.getSession();
+  }, []);
 
   const playlist = useMemo(() => buildPlaylist(vocab, config), [vocab, config]);
   const lastSessionWords = useMemo(() => {
