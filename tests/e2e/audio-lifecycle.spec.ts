@@ -306,6 +306,28 @@ test("Stop during Recall-mode gap prevents target and reading playback", async (
   await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.stopCount ?? 0)).toBe(1);
 });
 
+test("Restart after stopping during Recall-mode gap does not resume stale playback", async ({ page }) => {
+  await prepareAudioHarness(page);
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["米饭；餐"]);
+
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
+  await page.locator(".round-button").click();
+  await page.locator(".round-button").click();
+
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["米饭；餐", "米饭；餐"]);
+
+  await page.waitForTimeout(3200);
+
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["米饭；餐", "米饭；餐"]);
+});
+
 test("Background volume slider controls generated audio gain", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
