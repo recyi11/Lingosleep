@@ -584,35 +584,49 @@ function App() {
     );
   };
 
+  const speakIfPlaying = async (text: string, lang: TargetLanguage | NativeLanguage, volume: number) => {
+    if (!playingRef.current) return false;
+    await speak(text, lang, volume);
+    return playingRef.current;
+  };
+
+  const waitIfPlaying = async (ms: number) => {
+    if (!playingRef.current) return false;
+    await wait(ms);
+    return playingRef.current;
+  };
+
   const speakItem = async (item: VocabItem) => {
+    if (!playingRef.current) return;
     setCurrentItem(item);
     background.duck(true);
     if (config.mode === "Native word -> target word -> target word") {
-      await speak(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume);
-      await wait(900);
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume);
-      await wait(700);
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume * 0.92);
+      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume))) return;
+      if (!(await waitIfPlaying(900))) return;
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume))) return;
+      if (!(await waitIfPlaying(700))) return;
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume * 0.92))) return;
     } else if (config.mode === "Recall mode") {
-      await speak(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume);
-      await wait(2800);
+      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume))) return;
+      if (!(await waitIfPlaying(2800))) return;
       background.duck(true);
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume);
-      await wait(500);
-      await speak(item.reading, config.targetLanguage, config.voiceVolume * 0.82);
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume))) return;
+      if (!(await waitIfPlaying(500))) return;
+      if (!(await speakIfPlaying(item.reading, config.targetLanguage, config.voiceVolume * 0.82))) return;
     } else if (config.mode === "Word and example sentence") {
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume);
-      await wait(700);
-      await speak(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.88);
-      await wait(900);
-      await speak(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.84);
-      await wait(700);
-      await speak(item.exampleTranslations[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.74);
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume))) return;
+      if (!(await waitIfPlaying(700))) return;
+      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.88))) return;
+      if (!(await waitIfPlaying(900))) return;
+      if (!(await speakIfPlaying(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.84))) return;
+      if (!(await waitIfPlaying(700))) return;
+      if (!(await speakIfPlaying(item.exampleTranslations[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.74))) return;
     } else {
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume);
-      await wait(900);
-      await speak(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.78);
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume))) return;
+      if (!(await waitIfPlaying(900))) return;
+      if (!(await speakIfPlaying(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.78))) return;
     }
+    if (!playingRef.current) return;
     background.duck(false);
     markPlayed(item);
   };

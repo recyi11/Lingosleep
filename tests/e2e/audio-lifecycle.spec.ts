@@ -291,6 +291,21 @@ test("Recall mode keeps background ducked between native meaning and target play
   expect(rampTargetsThroughTarget.every((target) => target <= duckedVolume)).toBe(true);
 });
 
+test("Stop during Recall-mode gap prevents target and reading playback", async ({ page }) => {
+  await prepareAudioHarness(page);
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["米饭；餐"]);
+
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
+  await page.locator(".round-button").click();
+  await page.waitForTimeout(3200);
+
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["米饭；餐"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.stopCount ?? 0)).toBe(1);
+});
+
 test("Background volume slider controls generated audio gain", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
