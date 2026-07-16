@@ -415,6 +415,9 @@ function createNoiseSource(ctx: AudioContext, sound: BackgroundSound) {
   const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
   const data = buffer.getChannelData(0);
   let last = 0;
+  let rainBed = 0;
+  let rainRumble = 0;
+  let rainDrop = 0;
   for (let i = 0; i < bufferSize; i += 1) {
     const white = Math.random() * 2 - 1;
     if (sound === "brown noise") {
@@ -423,7 +426,13 @@ function createNoiseSource(ctx: AudioContext, sound: BackgroundSound) {
     } else if (sound === "fireplace") {
       data[i] = Math.random() > 0.985 ? white * 0.9 : white * 0.08;
     } else if (sound === "rain") {
-      data[i] = white * (Math.random() > 0.96 ? 0.55 : 0.16);
+      rainBed = rainBed * 0.82 + white * 0.18;
+      rainRumble = rainRumble * 0.985 + white * 0.015;
+      if (Math.random() > 0.992) {
+        rainDrop += (Math.random() * 2 - 1) * 0.7;
+      }
+      rainDrop *= 0.88;
+      data[i] = rainBed * 0.18 + rainRumble * 0.35 + rainDrop * 0.32;
     } else {
       data[i] = white * 0.22;
     }
@@ -444,6 +453,7 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
     const ctx = new AudioContext();
     const gain = ctx.createGain();
     const source = createNoiseSource(ctx, sound);
+    gain.gain.cancelScheduledValues(ctx.currentTime);
     gain.gain.value = volume;
     source.connect(gain).connect(ctx.destination);
     source.start();
@@ -453,8 +463,21 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
   };
 
   const stop = () => {
-    sourceRef.current?.stop();
-    ctxRef.current?.close();
+    const source = sourceRef.current;
+    const ctx = ctxRef.current;
+    if (source) {
+      try {
+        source.stop();
+      } catch {
+        // Source may already be stopped by a timer or browser lifecycle event.
+      }
+    }
+    if (ctx) {
+      const closed = ctx.close();
+      if (closed && "catch" in closed) {
+        void closed.catch(() => undefined);
+      }
+    }
     sourceRef.current = null;
     gainRef.current = null;
     ctxRef.current = null;
@@ -471,7 +494,10 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
   useEffect(() => {
     const gain = gainRef.current;
     const ctx = ctxRef.current;
-    if (gain && ctx) gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.25);
+    if (gain && ctx) {
+      gain.gain.cancelScheduledValues(ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.25);
+    }
   }, [volume]);
 
   useEffect(() => stop, []);
@@ -497,6 +523,7 @@ function App() {
   const [secondsLeft, setSecondsLeft] = useState(config.languageMinutes * 60);
   const [backgroundLeft, setBackgroundLeft] = useState(config.backgroundMinutes * 60);
   const playingRef = useRef(false);
+  const sessionTokenRef = useRef(0);
   const playedIdsRef = useRef<string[]>([]);
   const background = useBackgroundSound(config.backgroundSound, config.backgroundVolume);
 
@@ -558,42 +585,64 @@ function App() {
     );
   };
 
-  const speakItem = async (item: VocabItem) => {
+  const isSessionActive = (sessionToken: number) => playingRef.current && sessionTokenRef.current === sessionToken;
+
+  const speakIfPlaying = async (
+    text: string,
+    lang: TargetLanguage | NativeLanguage,
+    volume: number,
+    sessionToken: number
+  ) => {
+    if (!isSessionActive(sessionToken)) return false;
+    await speak(text, lang, volume);
+    return isSessionActive(sessionToken);
+  };
+
+  const waitIfPlaying = async (ms: number, sessionToken: number) => {
+    if (!isSessionActive(sessionToken)) return false;
+    await wait(ms);
+    return isSessionActive(sessionToken);
+  };
+
+  const speakItem = async (item: VocabItem, sessionToken: number) => {
+    if (!isSessionActive(sessionToken)) return;
     setCurrentItem(item);
     background.duck(true);
     if (config.mode === "Native word -> target word -> target word") {
-      await speak(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume);
-      await wait(900);
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume);
-      await wait(700);
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume * 0.92);
+      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await waitIfPlaying(900, sessionToken))) return;
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await waitIfPlaying(700, sessionToken))) return;
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume * 0.92, sessionToken))) return;
     } else if (config.mode === "Recall mode") {
-      await speak(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume);
-      background.duck(false);
-      await wait(2800);
+      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await waitIfPlaying(2800, sessionToken))) return;
       background.duck(true);
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume);
-      await wait(500);
-      await speak(item.reading, config.targetLanguage, config.voiceVolume * 0.82);
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await waitIfPlaying(500, sessionToken))) return;
+      if (!(await speakIfPlaying(item.reading, config.targetLanguage, config.voiceVolume * 0.82, sessionToken))) return;
     } else if (config.mode === "Word and example sentence") {
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume);
-      await wait(700);
-      await speak(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.88);
-      await wait(900);
-      await speak(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.84);
-      await wait(700);
-      await speak(item.exampleTranslations[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.74);
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await waitIfPlaying(700, sessionToken))) return;
+      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.88, sessionToken))) return;
+      if (!(await waitIfPlaying(900, sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.84, sessionToken))) return;
+      if (!(await waitIfPlaying(700, sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleTranslations[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.74, sessionToken))) return;
     } else {
-      await speak(item.targetText, config.targetLanguage, config.voiceVolume);
-      await wait(900);
-      await speak(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.78);
+      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await waitIfPlaying(900, sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.78, sessionToken))) return;
     }
+    if (!isSessionActive(sessionToken)) return;
     background.duck(false);
     markPlayed(item);
   };
 
   const startSession = async () => {
     if (playingRef.current) return;
+    const sessionToken = sessionTokenRef.current + 1;
+    sessionTokenRef.current = sessionToken;
     setStep("player");
     setIsPlaying(true);
     playingRef.current = true;
@@ -605,21 +654,25 @@ function App() {
 
     const started = Date.now();
     let index = 0;
-    while (playingRef.current && Date.now() - started < config.languageMinutes * 60 * 1000) {
+    while (isSessionActive(sessionToken) && Date.now() - started < config.languageMinutes * 60 * 1000) {
       const item = playlist[index % playlist.length];
-      await speakItem(item);
+      await speakItem(item, sessionToken);
+      if (!isSessionActive(sessionToken)) break;
       index += 1;
-      await wait(1600);
+      await waitIfPlaying(1600, sessionToken);
     }
-    if (playingRef.current) {
-      await fadeLanguage();
+    if (isSessionActive(sessionToken)) {
+      await fadeLanguage(sessionToken);
+      if (!isSessionActive(sessionToken)) return;
       stopSession(true);
     }
   };
 
   const stopSession = (save: boolean) => {
     playingRef.current = false;
+    sessionTokenRef.current += 1;
     window.speechSynthesis?.cancel();
+    background.stop();
     setIsPlaying(false);
     const savedPlayedIds = Array.from(new Set(playedIdsRef.current));
     if (save && savedPlayedIds.length) {
@@ -635,10 +688,10 @@ function App() {
     }
   };
 
-  const fadeLanguage = async () => {
+  const fadeLanguage = async (sessionToken: number) => {
     for (let i = 0; i < 4; i += 1) {
-      await speak("Good night.", "English", Math.max(0.05, config.voiceVolume * (0.25 - i * 0.05)));
-      await wait(700);
+      if (!(await speakIfPlaying("Good night.", "English", Math.max(0.05, config.voiceVolume * (0.25 - i * 0.05)), sessionToken))) return;
+      if (!(await waitIfPlaying(700, sessionToken))) return;
     }
   };
 
