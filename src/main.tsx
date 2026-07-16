@@ -46,13 +46,58 @@ function stored<T>(key: string, fallback: T): T {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
 }
 
-function say(text: string, lang: TargetLanguage | NativeLanguage, volume: number) {
+const preferredVoices: Partial<Record<TargetLanguage | NativeLanguage, string[]>> = {
+  English: ["Samantha", "Alex", "Google US English", "Google UK English Female", "Microsoft Aria", "Daniel"],
+  Japanese: ["Kyoko", "Otoya", "Google 日本語", "Microsoft Nanami"],
+  Korean: ["Yuna", "Google 한국의", "Microsoft SunHi"],
+};
+
+const noveltyVoiceNames = ["Albert", "Bad News", "Bahh", "Bells", "Boing", "Bubbles", "Cellos", "Good News", "Hysterical", "Junior", "Organ", "Princess", "Ralph", "Trinoids", "Whisper", "Zarvox"];
+
+function speechLang(lang: TargetLanguage | NativeLanguage) {
+  return lang === "Japanese" ? "ja-JP" : lang === "Korean" ? "ko-KR" : lang === "Simplified Chinese" ? "zh-CN" : lang === "Traditional Chinese" ? "zh-TW" : "en-US";
+}
+
+async function loadVoices() {
+  if (!("speechSynthesis" in window) || typeof speechSynthesis.getVoices !== "function") return [];
+
+  const voices = speechSynthesis.getVoices();
+  if (voices.length) return voices;
+
+  return new Promise<SpeechSynthesisVoice[]>((resolve) => {
+    const finish = () => {
+      speechSynthesis.removeEventListener?.("voiceschanged", finish);
+      resolve(speechSynthesis.getVoices());
+    };
+
+    speechSynthesis.addEventListener?.("voiceschanged", finish, { once: true });
+    setTimeout(finish, 600);
+  });
+}
+
+function chooseVoice(lang: TargetLanguage | NativeLanguage, voices: SpeechSynthesisVoice[]) {
+  const targetLang = speechLang(lang);
+  const matching = voices.filter((voice) => voice.lang === targetLang || voice.lang.startsWith(`${targetLang.split("-")[0]}-`));
+  if (!matching.length) return undefined;
+
+  const preferred = preferredVoices[lang]?.map((name) => name.toLowerCase()) ?? [];
+  return (
+    matching.find((voice) => preferred.some((name) => voice.name.toLowerCase().includes(name))) ??
+    matching.find((voice) => voice.localService && !noveltyVoiceNames.some((name) => voice.name.includes(name))) ??
+    matching.find((voice) => !noveltyVoiceNames.some((name) => voice.name.includes(name))) ??
+    matching[0]
+  );
+}
+
+async function say(text: string, lang: TargetLanguage | NativeLanguage, volume: number) {
+  const voices = await loadVoices();
   return new Promise<void>((resolve) => {
     if (!("speechSynthesis" in window)) return void setTimeout(resolve, 900);
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = lang === "Japanese" ? "ja-JP" : lang === "Korean" ? "ko-KR" : lang === "Simplified Chinese" ? "zh-CN" : lang === "Traditional Chinese" ? "zh-TW" : "en-US";
-    u.rate = lang === "English" ? 0.78 : 0.72;
-    u.pitch = 0.84;
+    u.lang = speechLang(lang);
+    u.voice = chooseVoice(lang, voices) ?? null;
+    u.rate = lang === "English" ? 0.88 : 0.76;
+    u.pitch = lang === "English" ? 1 : 0.94;
     u.volume = volume;
     u.onend = () => resolve();
     u.onerror = () => resolve();
