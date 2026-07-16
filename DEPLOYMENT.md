@@ -6,6 +6,15 @@
 - Cloudflare Pages builds and hosts the React + Vite frontend.
 - Supabase provides PostgreSQL, Authentication, Storage, and Row Level Security.
 
+## Current Deployment
+
+- GitHub repository: `recyi11/Lingosleep`
+- Cloudflare Pages project: `lingosleep`
+- Production URL: `https://lingosleep.pages.dev`
+- Supabase project: `lingosleep`
+- Supabase project ref: `etmcomizbmoaxhacnpuy`
+- Supabase region: Southeast Asia (Singapore), `ap-southeast-1`
+
 ## Local Development
 
 ```bash
@@ -101,10 +110,10 @@ MVP provider:
 
 Supabase Auth URL configuration should be updated after the Cloudflare Pages production URL exists:
 
-- Site URL: `https://<project>.pages.dev`
+- Site URL: `https://lingosleep.pages.dev`
 - Redirect URLs:
   - `http://localhost:5173/**`
-  - `https://<project>.pages.dev/**`
+  - `https://lingosleep.pages.dev/**`
 
 The current app initializes Supabase Auth session persistence, but it does not yet include a full in-app authentication screen.
 
