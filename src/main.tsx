@@ -1,32 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BookOpen, Check, ChevronLeft, Clock3, Heart, History, Moon, Pause, Play, SlidersHorizontal, Star, Volume2, Waves } from "lucide-react";
+import { vocabularySeed, type Level, type NativeLanguage, type Status, type TargetLanguage, type Topic, type Word } from "./data/vocabulary";
 import "./styles.css";
 
-type TargetLanguage = "Japanese" | "Korean";
-type NativeLanguage = "English" | "Simplified Chinese" | "Traditional Chinese";
-type Level = "Basic" | "Intermediate" | "Advanced";
-type Topic = "food" | "travel" | "daily life" | "numbers" | "common verbs" | "work" | "school" | "anime/drama" | "JLPT" | "TOPIK";
 type Mode = "Native word -> target word -> target word" | "Recall mode" | "Word and example sentence" | "Target-language-only immersion";
 type Sound = "rain" | "white noise" | "brown noise" | "fireplace" | "none";
-type Status = "New" | "Learning" | "Familiar" | "Mastered";
-
-type Word = {
-  id: string;
-  lang: TargetLanguage;
-  text: string;
-  meanings: Record<NativeLanguage, string>;
-  reading: string;
-  romanization: string;
-  level: Level;
-  topic: Topic;
-  example: string;
-  translations: Record<NativeLanguage, string>;
-  status?: Status;
-  favorite?: boolean;
-  timesPlayed?: number;
-  lastPlayed?: string;
-};
 
 type Config = {
   targetLanguage: TargetLanguage;
@@ -62,31 +41,6 @@ const defaultConfig: Config = {
   voiceVolume: 0.72,
   backgroundVolume: 0.34,
 };
-
-const seed: Word[] = [
-  word("ja-food-basic-1", "Japanese", "ご飯", "meal; cooked rice", "米饭；餐", "米飯；餐", "ごはん", "gohan", "Basic", "food", "朝ご飯を食べます。", "I eat breakfast.", "我吃早饭。", "我吃早飯。"),
-  word("ja-travel-basic-1", "Japanese", "駅", "station", "车站", "車站", "えき", "eki", "Basic", "travel", "駅はどこですか。", "Where is the station?", "车站在哪里？", "車站在哪裡？"),
-  word("ja-life-basic-1", "Japanese", "寝る", "to sleep", "睡觉", "睡覺", "ねる", "neru", "Basic", "daily life", "十一時に寝ます。", "I go to sleep at eleven.", "我十一点睡觉。", "我十一點睡覺。"),
-  word("ja-numbers-basic-1", "Japanese", "七", "seven", "七", "七", "なな / しち", "nana / shichi", "Basic", "numbers", "七つください。", "Seven, please.", "请给我七个。", "請給我七個。"),
-  word("ja-verbs-basic-1", "Japanese", "見る", "to see; to watch", "看", "看", "みる", "miru", "Basic", "common verbs", "映画を見ます。", "I watch a movie.", "我看电影。", "我看電影。"),
-  word("ja-work-intermediate-1", "Japanese", "会議", "meeting; conference", "会议", "會議", "かいぎ", "kaigi", "Intermediate", "work", "午後に会議があります。", "There is a meeting in the afternoon.", "下午有会议。", "下午有會議。"),
-  word("ja-school-intermediate-1", "Japanese", "課題", "assignment; task", "课题；作业", "課題；作業", "かだい", "kadai", "Intermediate", "school", "課題を提出しました。", "I submitted the assignment.", "我提交了作业。", "我提交了作業。"),
-  word("ja-anime-intermediate-1", "Japanese", "主人公", "main character", "主角", "主角", "しゅじんこう", "shujinko", "Intermediate", "anime/drama", "主人公は勇敢です。", "The main character is brave.", "主角很勇敢。", "主角很勇敢。"),
-  word("ja-jlpt-advanced-1", "Japanese", "恐縮", "feeling obliged; humbled", "惶恐；不好意思", "惶恐；不好意思", "きょうしゅく", "kyoshuku", "Advanced", "JLPT", "お手数をおかけして恐縮です。", "I am sorry to trouble you.", "给您添麻烦，我很不好意思。", "給您添麻煩，我很不好意思。"),
-  word("ko-food-basic-1", "Korean", "밥", "rice; meal", "米饭；饭", "米飯；飯", "밥", "bap", "Basic", "food", "밥을 먹어요.", "I eat a meal.", "我吃饭。", "我吃飯。"),
-  word("ko-travel-basic-1", "Korean", "역", "station", "车站", "車站", "역", "yeok", "Basic", "travel", "역이 어디예요?", "Where is the station?", "车站在哪里？", "車站在哪裡？"),
-  word("ko-life-basic-1", "Korean", "자다", "to sleep", "睡觉", "睡覺", "자다", "jada", "Basic", "daily life", "열한 시에 자요.", "I sleep at eleven.", "我十一点睡觉。", "我十一點睡覺。"),
-  word("ko-numbers-basic-1", "Korean", "일곱", "seven", "七", "七", "일곱", "ilgop", "Basic", "numbers", "일곱 개 주세요.", "Seven, please.", "请给我七个。", "請給我七個。"),
-  word("ko-verbs-basic-1", "Korean", "보다", "to see; to watch", "看", "看", "보다", "boda", "Basic", "common verbs", "드라마를 봐요.", "I watch a drama.", "我看电视剧。", "我看電視劇。"),
-  word("ko-work-intermediate-1", "Korean", "회의", "meeting", "会议", "會議", "회의", "hoeui", "Intermediate", "work", "오후에 회의가 있어요.", "There is a meeting in the afternoon.", "下午有会议。", "下午有會議。"),
-  word("ko-school-intermediate-1", "Korean", "과제", "assignment", "作业；课题", "作業；課題", "과제", "gwaje", "Intermediate", "school", "과제를 냈어요.", "I turned in the assignment.", "我交了作业。", "我交了作業。"),
-  word("ko-drama-intermediate-1", "Korean", "주인공", "main character", "主角", "主角", "주인공", "juingong", "Intermediate", "anime/drama", "주인공이 용감해요.", "The main character is brave.", "主角很勇敢。", "主角很勇敢。"),
-  word("ko-topik-advanced-1", "Korean", "유지하다", "to maintain", "维持", "維持", "유지하다", "yujihada", "Advanced", "TOPIK", "건강한 습관을 유지해야 합니다.", "You should maintain healthy habits.", "应该维持健康的习惯。", "應該維持健康的習慣。"),
-];
-
-function word(id: string, lang: TargetLanguage, text: string, en: string, zh: string, zht: string, reading: string, romanization: string, level: Level, topic: Topic, example: string, exEn: string, exZh: string, exZht: string): Word {
-  return { id, lang, text, meanings: { English: en, "Simplified Chinese": zh, "Traditional Chinese": zht }, reading, romanization, level, topic, example, translations: { English: exEn, "Simplified Chinese": exZh, "Traditional Chinese": exZht } };
-}
 
 function stored<T>(key: string, fallback: T): T {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
@@ -142,7 +96,7 @@ function useSound(sound: Sound, volume: number) {
 
 function App() {
   const [config, setConfig] = useState<Config>(() => stored("lingosleep-config", defaultConfig));
-  const [words, setWords] = useState<Word[]>(() => seed.map((item) => ({ ...item, status: "New", favorite: false, timesPlayed: 0, ...stored<Record<string, Partial<Word>>>("lingosleep-progress", {})[item.id] })));
+  const [words, setWords] = useState<Word[]>(() => vocabularySeed.map((item) => ({ ...item, status: "New", favorite: false, timesPlayed: 0, ...stored<Record<string, Partial<Word>>>("lingosleep-progress", {})[item.id] })));
   const [history, setHistory] = useState<Session[]>(() => stored("lingosleep-history", []));
   const [screen, setScreen] = useState<"onboarding" | "setup" | "player" | "history" | "quiz">(() => localStorage.getItem("lingosleep-onboarded") ? "setup" : "onboarding");
   const [playing, setPlaying] = useState(false);
@@ -186,8 +140,8 @@ function App() {
 
   async function playWord(item: Word) {
     setCurrent(item); bed.duck(true);
-    if (config.mode === "Native word -> target word -> target word") { await say(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume); await sleep(800); await say(item.text, config.targetLanguage, config.voiceVolume); await sleep(500); await say(item.text, config.targetLanguage, config.voiceVolume * 0.9); }
-    else if (config.mode === "Recall mode") { await say(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume); bed.duck(false); await sleep(2800); bed.duck(true); await say(item.text, config.targetLanguage, config.voiceVolume); await sleep(500); await say(item.reading, config.targetLanguage, config.voiceVolume * 0.82); }
+    if (config.mode === "Native word -> target word -> target word") { await say(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume); await sleep(800); await say(item.text, config.targetLanguage, config.voiceVolume); }
+    else if (config.mode === "Recall mode") { await say(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume); bed.duck(false); await sleep(2800); bed.duck(true); await say(item.text, config.targetLanguage, config.voiceVolume); }
     else if (config.mode === "Word and example sentence") { await say(item.text, config.targetLanguage, config.voiceVolume); await sleep(700); await say(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.88); await sleep(800); await say(item.example, config.targetLanguage, config.voiceVolume * 0.84); await sleep(600); await say(item.translations[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.74); }
     else { await say(item.text, config.targetLanguage, config.voiceVolume); await sleep(900); await say(item.example, config.targetLanguage, config.voiceVolume * 0.78); }
     bed.duck(false); mark(item);

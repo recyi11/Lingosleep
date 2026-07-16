@@ -17,6 +17,13 @@ type CorruptionCase = {
   expectedSpeech: string[];
 };
 
+type RotationCase = {
+  name: string;
+  targetLanguage: TargetLanguage;
+  topic: "food" | "daily life";
+  expectedSpeech: string[];
+};
+
 const cases: CorruptionCase[] = [
   {
     name: "Korean Food",
@@ -24,7 +31,7 @@ const cases: CorruptionCase[] = [
     corruptedId: "ko-food-basic-1",
     corruptedText: "자다",
     corruptedReading: "자다",
-    expectedSpeech: ["rice; meal", "밥", "밥"],
+    expectedSpeech: ["rice; meal", "밥"],
   },
   {
     name: "Japanese Food",
@@ -32,7 +39,34 @@ const cases: CorruptionCase[] = [
     corruptedId: "ja-food-basic-1",
     corruptedText: "寝る",
     corruptedReading: "ねる",
-    expectedSpeech: ["meal; cooked rice", "ご飯", "ごはん"],
+    expectedSpeech: ["meal; cooked rice", "ご飯"],
+  },
+];
+
+const rotationCases: RotationCase[] = [
+  {
+    name: "Japanese Food",
+    targetLanguage: "Japanese",
+    topic: "food",
+    expectedSpeech: ["meal; cooked rice", "ご飯", "water", "水"],
+  },
+  {
+    name: "Japanese Daily Life",
+    targetLanguage: "Japanese",
+    topic: "daily life",
+    expectedSpeech: ["to sleep", "寝る", "to wake up", "起きる"],
+  },
+  {
+    name: "Korean Food",
+    targetLanguage: "Korean",
+    topic: "food",
+    expectedSpeech: ["rice; meal", "밥", "water", "물"],
+  },
+  {
+    name: "Korean Daily Life",
+    targetLanguage: "Korean",
+    topic: "daily life",
+    expectedSpeech: ["to sleep", "자다", "to wake up", "일어나다"],
   },
 ];
 
@@ -116,10 +150,73 @@ for (const testCase of cases) {
     await page.goto("/");
     await page.getByRole("button", { name: "Start sleep session" }).click();
 
-    await expect.poll(() => page.evaluate(() => window.__spoken.slice(0, 3))).toEqual(testCase.expectedSpeech);
+    await expect.poll(() => page.evaluate((length) => window.__spoken.slice(0, length), testCase.expectedSpeech.length)).toEqual(testCase.expectedSpeech);
 
-    const spoken = await page.evaluate(() => window.__spoken.slice(0, 3));
+    const spoken = await page.evaluate((length) => window.__spoken.slice(0, length), testCase.expectedSpeech.length);
     expect(spoken).not.toContain(testCase.corruptedText);
     expect(spoken[0]).not.toBe("");
+  });
+}
+
+for (const testCase of rotationCases) {
+  test(`${testCase.name} playback rotates through multiple topic words`, async ({ page }) => {
+    await page.addInitScript(({ testCase }) => {
+      const config = {
+        targetLanguage: testCase.targetLanguage,
+        nativeLanguage: "English",
+        level: "Basic",
+        topic: testCase.topic,
+        mode: "Recall mode",
+        languageMinutes: 10,
+        backgroundMinutes: 10,
+        backgroundSound: "none",
+        voiceVolume: 0.72,
+        backgroundVolume: 0,
+      };
+
+      window.localStorage.setItem("lingosleep-onboarded", "true");
+      window.localStorage.setItem("lingosleep-config", JSON.stringify(config));
+      window.localStorage.removeItem("lingosleep-progress");
+      window.localStorage.removeItem("lingosleep-vocab");
+
+      window.__spoken = [];
+
+      class FakeSpeechSynthesisUtterance {
+        text: string;
+        lang = "";
+        rate = 1;
+        pitch = 1;
+        volume = 1;
+        onend: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        constructor(text: string) {
+          this.text = text;
+        }
+      }
+
+      Object.defineProperty(window, "SpeechSynthesisUtterance", {
+        configurable: true,
+        value: FakeSpeechSynthesisUtterance,
+      });
+
+      Object.defineProperty(window, "speechSynthesis", {
+        configurable: true,
+        value: {
+          cancel: () => undefined,
+          speak: (utterance: FakeSpeechSynthesisUtterance) => {
+            window.__spoken.push(utterance.text);
+            window.setTimeout(() => utterance.onend?.(), 0);
+          },
+        },
+      });
+    }, { testCase });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Start sleep session" }).click();
+
+    await expect
+      .poll(() => page.evaluate((length) => window.__spoken.slice(0, length), testCase.expectedSpeech.length), { timeout: 10_000 })
+      .toEqual(testCase.expectedSpeech);
   });
 }
