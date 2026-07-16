@@ -106,35 +106,54 @@ async function say(text: string, lang: TargetLanguage | NativeLanguage, volume: 
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const backgroundGain = (volume: number) => Math.min(0.12, Math.max(0, volume) ** 2 * 0.18);
 
 function useSound(sound: Sound, volume: number) {
   const ctx = useRef<AudioContext | null>(null);
   const gain = useRef<GainNode | null>(null);
   const source = useRef<AudioBufferSourceNode | null>(null);
-  const stop = () => { source.current?.stop(); ctx.current?.close(); source.current = null; gain.current = null; ctx.current = null; };
+  const stop = () => {
+    try {
+      source.current?.stop();
+    } catch {
+      // The node may already be stopped by the browser; stopping should stay idempotent.
+    }
+    void ctx.current?.close().catch(() => undefined);
+    source.current = null; gain.current = null; ctx.current = null;
+  };
   const start = () => {
     if (sound === "none" || source.current) return;
     const audio = new AudioContext();
-    const buffer = audio.createBuffer(1, audio.sampleRate * 2, audio.sampleRate);
+    const buffer = audio.createBuffer(1, audio.sampleRate * 4, audio.sampleRate);
     const data = buffer.getChannelData(0);
     let last = 0;
+    let rainDrop = 0;
     for (let i = 0; i < data.length; i++) {
       const white = Math.random() * 2 - 1;
       if (sound === "brown noise") { last = (last + 0.02 * white) / 1.02; data[i] = last * 3.5; }
       else if (sound === "fireplace") data[i] = Math.random() > 0.985 ? white * 0.9 : white * 0.08;
-      else if (sound === "rain") data[i] = white * (Math.random() > 0.96 ? 0.55 : 0.16);
+      else if (sound === "rain") {
+        if (Math.random() < 0.0018) rainDrop = 0.55 + Math.random() * 0.45;
+        rainDrop *= 0.985;
+        data[i] = white * 0.018 + (Math.random() * 2 - 1) * rainDrop * 0.22;
+      }
       else data[i] = white * 0.22;
     }
     const s = audio.createBufferSource();
     const g = audio.createGain();
-    g.gain.value = volume;
+    g.gain.value = backgroundGain(volume);
     s.buffer = buffer; s.loop = true; s.connect(g).connect(audio.destination); s.start();
     ctx.current = audio; gain.current = g; source.current = s;
   };
   const duck = (active: boolean) => {
     if (!ctx.current || !gain.current) return;
-    gain.current.gain.linearRampToValueAtTime(active ? volume * 0.28 : volume, ctx.current.currentTime + 0.35);
+    const target = backgroundGain(volume);
+    gain.current.gain.linearRampToValueAtTime(active ? target * 0.28 : target, ctx.current.currentTime + 0.35);
   };
+  useEffect(() => {
+    if (!ctx.current || !gain.current) return;
+    gain.current.gain.linearRampToValueAtTime(backgroundGain(volume), ctx.current.currentTime + 0.2);
+  }, [volume]);
   useEffect(() => () => stop(), []);
   return { start, stop, duck };
 }
@@ -202,7 +221,7 @@ function App() {
   }
 
   function stop(save: boolean) {
-    playingRef.current = false; speechSynthesis?.cancel(); setPlaying(false);
+    playingRef.current = false; speechSynthesis?.cancel(); bed.stop(); setPlaying(false);
     const ids = [...new Set(played.current)];
     if (save && ids.length) setHistory((all) => [{ id: crypto.randomUUID(), date: new Date().toISOString(), config, playedIds: ids }, ...all]);
   }
