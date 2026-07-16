@@ -386,3 +386,47 @@ test("Background volume slider controls generated audio gain", async ({ page }) 
   ]);
   await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.rampTargets)).toEqual([0.12 * 0.28]);
 });
+
+test("Player exposes usable voice and background volume controls during active playback", async ({ page }) => {
+  await prepareAudioHarness(page);
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
+
+  const voiceVolume = page.getByRole("slider", { name: "Voice" });
+  const backgroundVolume = page.getByRole("slider", { name: "Background" });
+
+  await expect(voiceVolume).toBeVisible();
+  await expect(backgroundVolume).toBeVisible();
+
+  await voiceVolume.fill("0.41");
+  await backgroundVolume.fill("0.16");
+
+  await expect(voiceVolume).toHaveValue("0.41");
+  await expect(backgroundVolume).toHaveValue("0.16");
+});
+
+test("Player volume changes affect active speech and preserve ducked background gain", async ({ page }) => {
+  await prepareAudioHarness(page);
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["米饭；餐"]);
+
+  await page.getByRole("slider", { name: "Voice" }).fill("0.31");
+  await page.getByRole("slider", { name: "Background" }).fill("0.16");
+
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.rampTargets.at(-1)))
+    .toBeCloseTo(0.16 * 0.28, 5);
+
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
+
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["米饭；餐", "ご飯"]);
+
+  const targetSpeechVolume = await page.evaluate(() => window.__audio.spoken[1]?.volume);
+  expect(targetSpeechVolume).toBeCloseTo(0.31, 5);
+});

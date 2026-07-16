@@ -386,6 +386,15 @@ input[type="range"] {
   font-size: 0.86rem;
 }
 
+.player-volume {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
 .player-actions,
 .quiz-actions {
   display: flex;

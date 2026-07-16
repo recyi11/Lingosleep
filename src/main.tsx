@@ -447,14 +447,21 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
   const ctxRef = useRef<AudioContext | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const volumeRef = useRef(volume);
+  const duckedRef = useRef(false);
+
+  useEffect(() => {
+    volumeRef.current = volume;
+  }, [volume]);
 
   const start = () => {
     if (sound === "none" || sourceRef.current) return;
+    duckedRef.current = false;
     const ctx = new AudioContext();
     const gain = ctx.createGain();
     const source = createNoiseSource(ctx, sound);
     gain.gain.cancelScheduledValues(ctx.currentTime);
-    gain.gain.value = volume;
+    gain.gain.value = volumeRef.current;
     source.connect(gain).connect(ctx.destination);
     source.start();
     ctxRef.current = ctx;
@@ -479,6 +486,7 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
       }
     }
     sourceRef.current = null;
+    duckedRef.current = false;
     gainRef.current = null;
     ctxRef.current = null;
   };
@@ -487,16 +495,19 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
     const ctx = ctxRef.current;
     const gain = gainRef.current;
     if (!ctx || !gain) return;
+    duckedRef.current = active;
+    const currentVolume = volumeRef.current;
     gain.gain.cancelScheduledValues(ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(active ? volume * 0.28 : volume, ctx.currentTime + 0.45);
+    gain.gain.linearRampToValueAtTime(active ? currentVolume * 0.28 : currentVolume, ctx.currentTime + 0.45);
   };
 
   useEffect(() => {
     const gain = gainRef.current;
     const ctx = ctxRef.current;
     if (gain && ctx) {
+      const targetVolume = duckedRef.current ? volume * 0.28 : volume;
       gain.gain.cancelScheduledValues(ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.25);
+      gain.gain.linearRampToValueAtTime(targetVolume, ctx.currentTime + 0.25);
     }
   }, [volume]);
 
@@ -507,6 +518,7 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
 
 function App() {
   const [config, setConfig] = useState<SessionConfig>(() => loadJson("lingosleep-config", defaultConfig));
+  const configRef = useRef(config);
   const [vocab, setVocab] = useState<VocabItem[]>(() => {
     const stored = loadJson<unknown>("lingosleep-vocab", null);
     if (!Array.isArray(stored)) return vocabSeed.map(withDefaultMetadata);
@@ -526,6 +538,10 @@ function App() {
   const sessionTokenRef = useRef(0);
   const playedIdsRef = useRef<string[]>([]);
   const background = useBackgroundSound(config.backgroundSound, config.backgroundVolume);
+
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
   useEffect(() => localStorage.setItem("lingosleep-config", JSON.stringify(config)), [config]);
   useEffect(() => localStorage.setItem("lingosleep-vocab", JSON.stringify(vocab)), [vocab]);
@@ -606,33 +622,35 @@ function App() {
 
   const speakItem = async (item: VocabItem, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return;
+    const sessionConfig = config;
+    const voiceVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
     setCurrentItem(item);
     background.duck(true);
-    if (config.mode === "Native word -> target word -> target word") {
-      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume, sessionToken))) return;
+    if (sessionConfig.mode === "Native word -> target word -> target word") {
+      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
-      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume * 0.92, sessionToken))) return;
-    } else if (config.mode === "Recall mode") {
-      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(0.92), sessionToken))) return;
+    } else if (sessionConfig.mode === "Recall mode") {
+      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(2800, sessionToken))) return;
       background.duck(true);
-      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(500, sessionToken))) return;
-      if (!(await speakIfPlaying(item.reading, config.targetLanguage, config.voiceVolume * 0.82, sessionToken))) return;
-    } else if (config.mode === "Word and example sentence") {
-      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await speakIfPlaying(item.reading, sessionConfig.targetLanguage, voiceVolume(0.82), sessionToken))) return;
+    } else if (sessionConfig.mode === "Word and example sentence") {
+      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.88, sessionToken))) return;
+      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, voiceVolume(0.88), sessionToken))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.84, sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.84), sessionToken))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleTranslations[config.nativeLanguage], config.nativeLanguage, config.voiceVolume * 0.74, sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleTranslations[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, voiceVolume(0.74), sessionToken))) return;
     } else {
-      if (!(await speakIfPlaying(item.targetText, config.targetLanguage, config.voiceVolume, sessionToken))) return;
+      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleSentence, config.targetLanguage, config.voiceVolume * 0.78, sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.78), sessionToken))) return;
     }
     if (!isSessionActive(sessionToken)) return;
     background.duck(false);
@@ -690,7 +708,8 @@ function App() {
 
   const fadeLanguage = async (sessionToken: number) => {
     for (let i = 0; i < 4; i += 1) {
-      if (!(await speakIfPlaying("Good night.", "English", Math.max(0.05, config.voiceVolume * (0.25 - i * 0.05)), sessionToken))) return;
+      const fadeVolume = Math.max(0.05, configRef.current.voiceVolume * (0.25 - i * 0.05));
+      if (!(await speakIfPlaying("Good night.", "English", fadeVolume, sessionToken))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
     }
   };
@@ -867,6 +886,20 @@ function App() {
                 <Waves size={16} />
                 Sound {formatTime(backgroundLeft)}
               </span>
+            </div>
+            <div className="player-volume">
+              <RangeControl
+                icon={<Volume2 size={18} />}
+                label="Voice"
+                value={config.voiceVolume}
+                onChange={(value) => updateConfig("voiceVolume", value)}
+              />
+              <RangeControl
+                icon={<Waves size={18} />}
+                label="Background"
+                value={config.backgroundVolume}
+                onChange={(value) => updateConfig("backgroundVolume", value)}
+              />
             </div>
             <div className="player-actions">
               <button className="round-button" onClick={() => (isPlaying ? stopSession(true) : startSession())}>
