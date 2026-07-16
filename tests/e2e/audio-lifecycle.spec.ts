@@ -13,9 +13,19 @@ declare global {
 }
 
 class FakeAudioParam {
-  value = 0;
+  private currentValue = 0;
+  assignedValues: number[] = [];
   rampTargets: number[] = [];
   canceledAt: number[] = [];
+
+  get value() {
+    return this.currentValue;
+  }
+
+  set value(value: number) {
+    this.currentValue = value;
+    this.assignedValues.push(value);
+  }
 
   cancelScheduledValues(time: number) {
     this.canceledAt.push(time);
@@ -125,9 +135,19 @@ async function prepareAudioHarness(page: Parameters<Parameters<typeof test>[1]>[
     };
 
     class BrowserFakeAudioParam {
-      value = 0;
+      private currentValue = 0;
+      assignedValues: number[] = [];
       rampTargets: number[] = [];
       canceledAt: number[] = [];
+
+      get value() {
+        return this.currentValue;
+      }
+
+      set value(value: number) {
+        this.currentValue = value;
+        this.assignedValues.push(value);
+      }
 
       cancelScheduledValues(time: number) {
         this.canceledAt.push(time);
@@ -250,7 +270,7 @@ test("Stop tears down background audio and cancels speech", async ({ page }) => 
   await expect.poll(() => page.evaluate(() => window.__audio.contexts[0]?.closeCount ?? 0)).toBe(1);
 });
 
-test("Background ducking restores only to configured volume during recall speech", async ({ page }) => {
+test("Recall mode keeps background ducked between native meaning and target playback", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
@@ -259,11 +279,29 @@ test("Background ducking restores only to configured volume during recall speech
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
 
-  await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.rampTargets)).toEqual([
-    sessionConfig.backgroundVolume * 0.28,
-    sessionConfig.backgroundVolume,
-  ]);
+  const duckedVolume = sessionConfig.backgroundVolume * 0.28;
+  const rampTargetsAfterMeaning = await page.evaluate(() => window.__audio.gains[0].gain.rampTargets);
+  expect(rampTargetsAfterMeaning.every((target) => target <= duckedVolume)).toBe(true);
 
-  const maxRampTarget = await page.evaluate(() => Math.max(...window.__audio.gains[0].gain.rampTargets));
-  expect(maxRampTarget).toBeLessThanOrEqual(sessionConfig.backgroundVolume);
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["米饭；餐", "ご飯"]);
+
+  const rampTargetsThroughTarget = await page.evaluate(() => window.__audio.gains[0].gain.rampTargets);
+  expect(rampTargetsThroughTarget.every((target) => target <= duckedVolume)).toBe(true);
+});
+
+test("Background volume slider controls generated audio gain", async ({ page }) => {
+  await prepareAudioHarness(page);
+  await page.goto("/");
+
+  await page.getByLabel("Background", { exact: true }).fill("0.12");
+  await page.getByRole("button", { name: "Start sleep session" }).click();
+
+  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.assignedValues)).toEqual([
+    0.12,
+    0.12 * 0.28,
+  ]);
+  await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.rampTargets)).toEqual([0.12 * 0.28]);
 });
