@@ -415,6 +415,9 @@ function createNoiseSource(ctx: AudioContext, sound: BackgroundSound) {
   const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
   const data = buffer.getChannelData(0);
   let last = 0;
+  let rainBed = 0;
+  let rainRumble = 0;
+  let rainDrop = 0;
   for (let i = 0; i < bufferSize; i += 1) {
     const white = Math.random() * 2 - 1;
     if (sound === "brown noise") {
@@ -423,7 +426,13 @@ function createNoiseSource(ctx: AudioContext, sound: BackgroundSound) {
     } else if (sound === "fireplace") {
       data[i] = Math.random() > 0.985 ? white * 0.9 : white * 0.08;
     } else if (sound === "rain") {
-      data[i] = white * (Math.random() > 0.96 ? 0.55 : 0.16);
+      rainBed = rainBed * 0.82 + white * 0.18;
+      rainRumble = rainRumble * 0.985 + white * 0.015;
+      if (Math.random() > 0.992) {
+        rainDrop += (Math.random() * 2 - 1) * 0.7;
+      }
+      rainDrop *= 0.88;
+      data[i] = rainBed * 0.18 + rainRumble * 0.35 + rainDrop * 0.32;
     } else {
       data[i] = white * 0.22;
     }
@@ -444,6 +453,7 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
     const ctx = new AudioContext();
     const gain = ctx.createGain();
     const source = createNoiseSource(ctx, sound);
+    gain.gain.cancelScheduledValues(ctx.currentTime);
     gain.gain.value = volume;
     source.connect(gain).connect(ctx.destination);
     source.start();
@@ -453,8 +463,21 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
   };
 
   const stop = () => {
-    sourceRef.current?.stop();
-    ctxRef.current?.close();
+    const source = sourceRef.current;
+    const ctx = ctxRef.current;
+    if (source) {
+      try {
+        source.stop();
+      } catch {
+        // Source may already be stopped by a timer or browser lifecycle event.
+      }
+    }
+    if (ctx) {
+      const closed = ctx.close();
+      if (closed && "catch" in closed) {
+        void closed.catch(() => undefined);
+      }
+    }
     sourceRef.current = null;
     gainRef.current = null;
     ctxRef.current = null;
@@ -471,7 +494,10 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
   useEffect(() => {
     const gain = gainRef.current;
     const ctx = ctxRef.current;
-    if (gain && ctx) gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.25);
+    if (gain && ctx) {
+      gain.gain.cancelScheduledValues(ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.25);
+    }
   }, [volume]);
 
   useEffect(() => stop, []);
@@ -569,7 +595,6 @@ function App() {
       await speak(item.targetText, config.targetLanguage, config.voiceVolume * 0.92);
     } else if (config.mode === "Recall mode") {
       await speak(item.meanings[config.nativeLanguage], config.nativeLanguage, config.voiceVolume);
-      background.duck(false);
       await wait(2800);
       background.duck(true);
       await speak(item.targetText, config.targetLanguage, config.voiceVolume);
@@ -620,6 +645,7 @@ function App() {
   const stopSession = (save: boolean) => {
     playingRef.current = false;
     window.speechSynthesis?.cancel();
+    background.stop();
     setIsPlaying(false);
     const savedPlayedIds = Array.from(new Set(playedIdsRef.current));
     if (save && savedPlayedIds.length) {
