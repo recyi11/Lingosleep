@@ -11,6 +11,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Shuffle,
   SlidersHorizontal,
   Sparkles,
   Star,
@@ -35,19 +36,25 @@ type PlaybackMode =
   | "Word and example sentence"
   | "Target-language-only immersion";
 type BackgroundSound = "soft rain" | "heavy rain" | "Rain and Thunder" | "white noise" | "brown noise" | "fireplace" | "none";
+type PlaybackOrder = "Start from beginning" | "Start from last left" | "Random";
+type ReviewTopic = Topic | "all topics";
 type PersistedVocabMetadata = Pick<VocabItem, "status" | "favorite" | "timesPlayed" | "lastPlayed">;
 
 type SessionConfig = {
   targetLanguage: TargetLanguage;
   nativeLanguage: NativeLanguage;
   level: Level;
-  topic: Topic;
+  topic: ReviewTopic;
   mode: PlaybackMode;
   languageMinutes: number;
   backgroundMinutes: number;
   backgroundSound: BackgroundSound;
+  playbackOrder: PlaybackOrder;
   voiceVolume: number;
   nativeVoiceVolume: number;
+  targetVoiceRate: number;
+  nativeVoiceRate: number;
+  pauseSeconds: number;
   backgroundVolume: number;
 };
 
@@ -61,6 +68,7 @@ type SessionRecord = {
 const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese"];
 const koreanVoiceBoost = 1.3;
 const softRainBoost = 1.3;
+const allTopics: ReviewTopic = "all topics";
 const levels: Level[] = ["Basic", "Intermediate", "Advanced"];
 const topics: Topic[] = [
   "food",
@@ -82,11 +90,108 @@ const modes: PlaybackMode[] = [
 ];
 const durations = [10, 20, 30, 45, 60];
 const backgroundSounds: BackgroundSound[] = ["soft rain", "heavy rain", "Rain and Thunder", "white noise", "brown noise", "fireplace", "none"];
+const playbackOrders: PlaybackOrder[] = ["Start from beginning", "Start from last left", "Random"];
 const rainSoundUrls: Partial<Record<BackgroundSound, string>> = {
   "soft rain": "/audio/background/soft-rain.mp3",
   "heavy rain": "/audio/background/heavy-rain.mp3",
   "Rain and Thunder": "/audio/background/thunderstorm.mp3",
 };
+const simplifiedChineseLabels: Record<string, string> = {
+  "Night vocabulary review": "词汇复习",
+  "Relaxed vocabulary review for quiet nights.": "适合安静时段的轻松词汇复习。",
+  "Review Japanese or Korean words with validated course data, gentle pacing, translations, examples, and calming sound beds. It supports review while resting, without promising sleep-only fluency.":
+    "用经过整理的课程词汇复习日语或韩语，包含舒缓节奏、翻译、例句和背景声音。它适合休息时复习，但不承诺只靠睡眠就能流利掌握。",
+  "Gentle review for rest time. Fluency still needs active study, speaking, reading, and recall practice.":
+    "适合休息时的轻松复习。真正流利仍然需要主动学习、开口、阅读和回忆练习。",
+  Begin: "开始",
+  "Back to setup": "返回设置",
+  "Session history": "复习记录",
+  "Target language": "目标语言",
+  "Native language": "母语",
+  "Target speed": "目标语语速",
+  "Native speed": "母语语速",
+  Level: "等级",
+  Topic: "词库",
+  "Playback mode": "播放模式",
+  "Word order": "单词顺序",
+  Finished: "完成",
+  "in this playlist": "当前播放列表",
+  "words total": "总词数",
+  "random order": "随机顺序",
+  "start from first word": "从第一个词开始",
+  "all words finished": "全部词已完成",
+  "continue from": "继续：",
+  Timers: "计时",
+  "Language playback": "语言播放",
+  "Background sound": "背景声音",
+  Volume: "音量",
+  "Target voice": "目标语音量",
+  "Native voice": "母语音量",
+  Background: "背景音量",
+  "Pause between words": "单词间隔",
+  "Start random session": "开始随机复习",
+  "Continue session": "继续复习",
+  "Start session": "开始复习",
+  "Morning quiz": "晨间测验",
+  "review session": "复习",
+  "Settling in": "准备中",
+  "Voice will begin after you tap play": "点击播放后开始朗读",
+  Voice: "语音",
+  Sound: "背景音",
+  "Add this app to your home screen for the best mobile lock-screen playback support. Browser policies may vary.":
+    "添加到主屏幕可获得更好的手机锁屏播放支持。不同浏览器支持可能不同。",
+  "Completed sessions will appear here with every word that was played.": "完成的复习会显示在这里，并列出播放过的单词。",
+  words: "个词",
+  played: "播放",
+  New: "新词",
+  Learning: "学习中",
+  Familiar: "熟悉",
+  Mastered: "已掌握",
+  "Toggle favorite": "收藏/取消收藏",
+  "Finish a session first, then tomorrow's recall quiz will use those words.": "先完成一次复习，明天的回忆测验会使用这些词。",
+  "Morning recall": "晨间回忆",
+  "Try to recall the target-language word before revealing it.": "先尝试回想目标语单词，再查看答案。",
+  Reveal: "显示答案",
+  "I remembered": "我记住了",
+  Done: "完成",
+  Japanese: "日语",
+  Korean: "韩语",
+  English: "英语",
+  "Simplified Chinese": "简体中文",
+  Basic: "基础",
+  Intermediate: "中级",
+  Advanced: "高级",
+  "JLPT N5-N4 / TOPIK 1-2": "JLPT N5-N4 / TOPIK 1-2",
+  "JLPT N3-N2 / TOPIK 3-4": "JLPT N3-N2 / TOPIK 3-4",
+  "JLPT N1 / TOPIK 5-6": "JLPT N1 / TOPIK 5-6",
+  "all topics": "全部词库",
+  food: "食物",
+  travel: "旅行",
+  "daily life": "日常生活",
+  numbers: "数字",
+  "common verbs": "常用动词",
+  work: "工作",
+  school: "学校",
+  "anime/drama": "动漫/剧集",
+  "Native word -> target word -> target word": "母语 -> 目标语 -> 目标语",
+  "Recall mode": "回忆模式",
+  "Word and example sentence": "单词和例句",
+  "Target-language-only immersion": "仅目标语沉浸",
+  "Start from beginning": "从头开始",
+  "Start from last left": "从上次位置继续",
+  Random: "随机",
+  "soft rain": "小雨",
+  "heavy rain": "大雨",
+  "Rain and Thunder": "雨声和雷声",
+  "white noise": "白噪音",
+  "brown noise": "棕噪音",
+  fireplace: "壁炉声",
+  none: "无",
+};
+
+function translate(text: string, nativeLanguage: NativeLanguage) {
+  return nativeLanguage === "Simplified Chinese" ? simplifiedChineseLabels[text] || text : text;
+}
 
 const defaultConfig: SessionConfig = {
   targetLanguage: "Japanese",
@@ -97,8 +202,12 @@ const defaultConfig: SessionConfig = {
   languageMinutes: 20,
   backgroundMinutes: 45,
   backgroundSound: "soft rain",
+  playbackOrder: "Start from last left",
   voiceVolume: 0.72,
   nativeVoiceVolume: 0.95,
+  targetVoiceRate: 1,
+  nativeVoiceRate: 1,
+  pauseSeconds: 1.6,
   backgroundVolume: 0.34,
 };
 
@@ -115,6 +224,7 @@ function loadJson<T>(key: string, fallback: T): T {
 
 function normalizeConfig(config: SessionConfig): SessionConfig {
   const storedBackground = (config as { backgroundSound?: string }).backgroundSound;
+  const storedTopic = (config as { topic?: string }).topic;
   const backgroundSound =
     storedBackground === "rain"
       ? "soft rain"
@@ -127,11 +237,30 @@ function normalizeConfig(config: SessionConfig): SessionConfig {
     typeof (config as SessionConfig & { nativeVoiceVolume?: unknown }).nativeVoiceVolume === "number"
       ? (config as SessionConfig & { nativeVoiceVolume: number }).nativeVoiceVolume
       : Math.min(1, config.voiceVolume * 1.35);
+  const targetVoiceRate =
+    typeof (config as SessionConfig & { targetVoiceRate?: unknown }).targetVoiceRate === "number"
+      ? (config as SessionConfig & { targetVoiceRate: number }).targetVoiceRate
+      : defaultConfig.targetVoiceRate;
+  const nativeVoiceRate =
+    typeof (config as SessionConfig & { nativeVoiceRate?: unknown }).nativeVoiceRate === "number"
+      ? (config as SessionConfig & { nativeVoiceRate: number }).nativeVoiceRate
+      : defaultConfig.nativeVoiceRate;
+  const pauseSeconds =
+    typeof (config as SessionConfig & { pauseSeconds?: unknown }).pauseSeconds === "number"
+      ? (config as SessionConfig & { pauseSeconds: number }).pauseSeconds
+      : defaultConfig.pauseSeconds;
 
   return {
     ...config,
     backgroundSound,
+    playbackOrder: playbackOrders.includes((config as SessionConfig & { playbackOrder?: PlaybackOrder }).playbackOrder)
+      ? (config as SessionConfig & { playbackOrder: PlaybackOrder }).playbackOrder
+      : defaultConfig.playbackOrder,
+    topic: storedTopic === allTopics || topics.includes(storedTopic as Topic) ? (storedTopic as ReviewTopic) : defaultConfig.topic,
     nativeVoiceVolume,
+    targetVoiceRate,
+    nativeVoiceRate,
+    pauseSeconds,
     nativeLanguage: nativeLanguages.includes(config.nativeLanguage) ? config.nativeLanguage : "Simplified Chinese",
   };
 }
@@ -162,7 +291,7 @@ function readPersistedVocabMetadata(stored: unknown): PersistedVocabMetadata {
   return metadata;
 }
 
-function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: number) {
+function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: number, rateMultiplier: number) {
   return new Promise<void>((resolve) => {
     if (!("speechSynthesis" in window)) {
       globalThis.setTimeout(resolve, 900);
@@ -180,7 +309,7 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
             : lang === "Traditional Chinese"
               ? "zh-TW"
               : "en-US";
-    utterance.rate = lang === "English" ? 0.78 : 0.72;
+    utterance.rate = (lang === "English" ? 0.78 : 0.72) * rateMultiplier;
     utterance.pitch = 0.84;
     utterance.volume = volume;
     utterance.onend = () => resolve();
@@ -302,6 +431,8 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
 
 function App() {
   const [config, setConfig] = useState<SessionConfig>(() => normalizeConfig(loadJson("lingosleep-config", defaultConfig)));
+  const t = (text: string) => translate(text, config.nativeLanguage);
+  const label = (text: string) => translate(text, config.nativeLanguage);
   const configRef = useRef(config);
   const [vocab, setVocab] = useState<VocabItem[]>(() => {
     const stored = loadJson<unknown>("lingosleep-vocab", null);
@@ -310,6 +441,7 @@ function App() {
     return vocabSeed.map((item) => ({ ...withDefaultMetadata(item), ...readPersistedVocabMetadata(storedById.get(item.id)) }));
   });
   const [history, setHistory] = useState<SessionRecord[]>(() => loadJson("lingosleep-history", []));
+  const [playlistPositions, setPlaylistPositions] = useState<Record<string, number>>(() => loadJson("lingosleep-playlist-positions", {}));
   const [step, setStep] = useState<"onboarding" | "setup" | "player" | "history" | "quiz">(() =>
     localStorage.getItem("lingosleep-onboarded") ? "setup" : "onboarding"
   );
@@ -322,19 +454,40 @@ function App() {
   const sessionTokenRef = useRef(0);
   const playedIdsRef = useRef<string[]>([]);
   const background = useBackgroundSound(config.backgroundSound, config.backgroundVolume);
+  const availableTopics = useMemo(
+    () => [
+      allTopics,
+      ...topics.filter((topic) =>
+        vocab.some((item) => item.targetLanguage === config.targetLanguage && item.level === config.level && item.topic === topic)
+      ),
+    ],
+    [config.targetLanguage, config.level, vocab]
+  );
 
   useEffect(() => {
     configRef.current = config;
   }, [config]);
 
+  useEffect(() => {
+    if (availableTopics.length && !availableTopics.includes(config.topic)) {
+      updateConfig("topic", availableTopics[0]);
+    }
+  }, [availableTopics, config.topic]);
+
   useEffect(() => localStorage.setItem("lingosleep-config", JSON.stringify(config)), [config]);
   useEffect(() => localStorage.setItem("lingosleep-vocab", JSON.stringify(vocab)), [vocab]);
   useEffect(() => localStorage.setItem("lingosleep-history", JSON.stringify(history)), [history]);
+  useEffect(() => localStorage.setItem("lingosleep-playlist-positions", JSON.stringify(playlistPositions)), [playlistPositions]);
   useEffect(() => {
     void supabase.auth.getSession();
   }, []);
 
   const playlist = useMemo(() => buildPlaylist(vocab, config), [vocab, config]);
+  const playlistKey = useMemo(() => getPlaylistKey(config), [config.targetLanguage, config.level, config.topic]);
+  const completedWords = Math.min(playlist.length, Math.max(0, playlistPositions[playlistKey] || 0));
+  const resumeWord = playlist[completedWords % (playlist.length || 1)];
+  const progressPercent = playlist.length ? Math.round((completedWords / playlist.length) * 100) : 0;
+  const targetLanguageWordCount = vocab.filter((item) => item.targetLanguage === config.targetLanguage).length;
   const lastSessionWords = useMemo(() => {
     const last = history[0];
     if (!last) return [];
@@ -344,7 +497,7 @@ function App() {
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: currentItem ? currentItem.targetText : "Sleep vocabulary session",
+      title: currentItem ? currentItem.targetText : t("Night vocabulary review"),
       artist: "LingoSleep",
       album: `${config.targetLanguage} ${config.level}`,
     });
@@ -394,7 +547,8 @@ function App() {
     sessionToken: number
   ) => {
     if (!isSessionActive(sessionToken)) return false;
-    await speak(text, lang, volume);
+    const rate = lang === configRef.current.targetLanguage ? configRef.current.targetVoiceRate : configRef.current.nativeVoiceRate;
+    await speak(text, lang, volume, rate);
     return isSessionActive(sessionToken);
   };
 
@@ -446,6 +600,7 @@ function App() {
 
   const startSession = async () => {
     if (playingRef.current) return;
+    if (!playlist.length) return;
     const sessionToken = sessionTokenRef.current + 1;
     sessionTokenRef.current = sessionToken;
     setStep("player");
@@ -458,13 +613,20 @@ function App() {
     background.start();
 
     const started = Date.now();
-    let index = 0;
+    const sessionPlaylist = config.playbackOrder === "Random" ? shuffle(playlist) : playlist;
+    let index = config.playbackOrder === "Start from last left" ? completedWords % sessionPlaylist.length : 0;
     while (isSessionActive(sessionToken) && Date.now() - started < config.languageMinutes * 60 * 1000) {
-      const item = playlist[index % playlist.length];
+      const item = sessionPlaylist[index % sessionPlaylist.length];
       await speakItem(item, sessionToken);
       if (!isSessionActive(sessionToken)) break;
       index += 1;
-      await waitIfPlaying(1600, sessionToken);
+      if (config.playbackOrder !== "Random") {
+        setPlaylistPositions((positions) => ({
+          ...positions,
+          [playlistKey]: Math.min(index, sessionPlaylist.length),
+        }));
+      }
+      await waitIfPlaying(configRef.current.pauseSeconds * 1000, sessionToken);
     }
     if (isSessionActive(sessionToken)) {
       await fadeLanguage(sessionToken);
@@ -522,9 +684,9 @@ function App() {
           </button>
           <div>
             <p className="eyebrow">LingoSleep</p>
-            <h1>Night vocabulary review</h1>
+            <h1>{t("Night vocabulary review")}</h1>
           </div>
-          <button className="icon-button" onClick={() => setStep("history")} aria-label="Session history">
+          <button className="icon-button" onClick={() => setStep("history")} aria-label={t("Session history")}>
             <History size={21} />
           </button>
         </header>
@@ -536,10 +698,11 @@ function App() {
             <Moon size={42} />
           </div>
           <p className="eyebrow">LingoSleep</p>
-          <h1>Relaxed vocabulary review for quiet nights.</h1>
+          <h1>{t("Relaxed vocabulary review for quiet nights.")}</h1>
           <p>
-            Review Japanese or Korean words with validated course data, gentle pacing, translations, examples, and
-            calming sound beds. It supports review while resting, without promising sleep-only fluency.
+            {t(
+              "Review Japanese or Korean words with validated course data, gentle pacing, translations, examples, and calming sound beds. It supports review while resting, without promising sleep-only fluency."
+            )}
           </p>
           <button
             className="primary-button"
@@ -549,29 +712,51 @@ function App() {
             }}
           >
             <Sparkles size={19} />
-            Begin
+            {t("Begin")}
           </button>
         </section>
       )}
 
       {step === "setup" && (
         <section className="screen stack">
-          <Notice />
-          <ControlGroup title="Target language">
+          <Notice t={t} />
+          <ControlGroup title={t("Target language")}>
             <Segmented
               options={["Japanese", "Korean"]}
               value={config.targetLanguage}
+              labelFor={label}
               onChange={(value) => updateConfig("targetLanguage", value as TargetLanguage)}
             />
+            <RangeControl
+              icon={<Clock3 size={18} />}
+              label={t("Target speed")}
+              value={config.targetVoiceRate}
+              min={0.5}
+              max={2}
+              step={0.1}
+              valueText={`${config.targetVoiceRate.toFixed(1)}x`}
+              onChange={(value) => updateConfig("targetVoiceRate", value)}
+            />
           </ControlGroup>
-          <ControlGroup title="Native language">
+          <ControlGroup title={t("Native language")}>
             <Segmented
               options={nativeLanguages}
               value={config.nativeLanguage}
+              labelFor={label}
               onChange={(value) => updateConfig("nativeLanguage", value as NativeLanguage)}
             />
+            <RangeControl
+              icon={<Clock3 size={18} />}
+              label={t("Native speed")}
+              value={config.nativeVoiceRate}
+              min={0.5}
+              max={2}
+              step={0.1}
+              valueText={`${config.nativeVoiceRate.toFixed(1)}x`}
+              onChange={(value) => updateConfig("nativeVoiceRate", value)}
+            />
           </ControlGroup>
-          <ControlGroup title="Level">
+          <ControlGroup title={t("Level")}>
             <div className="choice-grid">
               {levels.map((level) => (
                 <button
@@ -579,26 +764,26 @@ function App() {
                   className={`choice ${config.level === level ? "selected" : ""}`}
                   onClick={() => updateConfig("level", level)}
                 >
-                  <strong>{level}</strong>
-                  <span>{level === "Basic" ? "JLPT N5-N4 / TOPIK 1-2" : level === "Intermediate" ? "JLPT N3-N2 / TOPIK 3-4" : "JLPT N1 / TOPIK 5-6"}</span>
+                  <strong>{label(level)}</strong>
+                  <span>{level === "Basic" ? label("JLPT N5-N4 / TOPIK 1-2") : level === "Intermediate" ? label("JLPT N3-N2 / TOPIK 3-4") : label("JLPT N1 / TOPIK 5-6")}</span>
                 </button>
               ))}
             </div>
           </ControlGroup>
-          <ControlGroup title="Topic">
+          <ControlGroup title={t("Topic")}>
             <div className="pill-grid">
-              {topics.map((topic) => (
+              {availableTopics.map((topic) => (
                 <button
                   key={topic}
                   className={`pill ${config.topic === topic ? "selected" : ""}`}
                   onClick={() => updateConfig("topic", topic)}
                 >
-                  {topic}
+                  {label(topic)}
                 </button>
               ))}
             </div>
           </ControlGroup>
-          <ControlGroup title="Playback mode">
+          <ControlGroup title={t("Playback mode")}>
             <div className="choice-grid">
               {modes.map((mode) => (
                 <button
@@ -606,58 +791,104 @@ function App() {
                   className={`choice ${config.mode === mode ? "selected" : ""}`}
                   onClick={() => updateConfig("mode", mode)}
                 >
-                  <strong>{mode}</strong>
+                  <strong>{label(mode)}</strong>
                 </button>
               ))}
             </div>
           </ControlGroup>
-          <ControlGroup title="Timers">
+          <ControlGroup title={t("Word order")}>
+            <Segmented
+              options={playbackOrders}
+              value={config.playbackOrder}
+              labelFor={label}
+              onChange={(value) => updateConfig("playbackOrder", value as PlaybackOrder)}
+            />
+          </ControlGroup>
+          <div className="progress-card">
+            <div>
+              <span>{t("Finished")}</span>
+              <strong>{progressPercent}%</strong>
+            </div>
+            <progress value={completedWords} max={playlist.length || 1} />
+            <p>
+              {config.nativeLanguage === "Simplified Chinese"
+                ? `${completedWords}/${playlist.length} ${t("in this playlist")} · ${label(config.targetLanguage)}${t("words total")} ${targetLanguageWordCount} · `
+                : `${completedWords}/${playlist.length} ${t("in this playlist")} · ${targetLanguageWordCount} ${label(config.targetLanguage)} ${t("words total")} · `}
+              {config.playbackOrder === "Random"
+                ? t("random order")
+                : config.playbackOrder === "Start from beginning"
+                  ? t("start from first word")
+                : completedWords === 0
+                  ? t("start from first word")
+                : completedWords >= playlist.length
+                  ? t("all words finished")
+                : resumeWord
+                  ? `${t("continue from")} ${resumeWord.targetText}`
+                  : t("all words finished")}
+            </p>
+          </div>
+          <ControlGroup title={t("Timers")}>
             <TimerPicker
-              label="Language playback"
+              label={t("Language playback")}
               value={config.languageMinutes}
               onChange={(value) => updateConfig("languageMinutes", value)}
             />
             <TimerPicker
-              label="Background sound"
+              label={t("Background sound")}
               value={config.backgroundMinutes}
               onChange={(value) => updateConfig("backgroundMinutes", value)}
             />
+            <RangeControl
+              icon={<Clock3 size={18} />}
+              label={t("Pause between words")}
+              value={config.pauseSeconds}
+              min={0.5}
+              max={5}
+              step={0.5}
+              valueText={`${config.pauseSeconds.toFixed(1)}s`}
+              onChange={(value) => updateConfig("pauseSeconds", value)}
+            />
           </ControlGroup>
-          <ControlGroup title="Background sound">
+          <ControlGroup title={t("Background sound")}>
             <Segmented
               options={backgroundSounds}
               value={config.backgroundSound}
+              labelFor={label}
               onChange={(value) => updateConfig("backgroundSound", value as BackgroundSound)}
             />
           </ControlGroup>
-          <ControlGroup title="Volume">
+          <ControlGroup title={t("Volume")}>
             <RangeControl
               icon={<Volume2 size={18} />}
-              label="Target voice"
+              label={t("Target voice")}
               value={config.voiceVolume}
               onChange={(value) => updateConfig("voiceVolume", value)}
             />
             <RangeControl
               icon={<Volume2 size={18} />}
-              label="Native voice"
+              label={t("Native voice")}
               value={config.nativeVoiceVolume}
               onChange={(value) => updateConfig("nativeVoiceVolume", value)}
             />
             <RangeControl
               icon={<Waves size={18} />}
-              label="Background"
+              label={t("Background")}
               value={config.backgroundVolume}
               onChange={(value) => updateConfig("backgroundVolume", value)}
             />
           </ControlGroup>
           <div className="sticky-actions">
             <button className="primary-button" onClick={startSession}>
-              <Play size={20} />
-              Start sleep session
+              {config.playbackOrder === "Random" ? <Shuffle size={20} /> : <Play size={20} />}
+              {config.playbackOrder === "Random"
+                ? t("Start random session")
+                : config.playbackOrder === "Start from last left" && completedWords > 0
+                  ? t("Continue session")
+                  : t("Start session")}
             </button>
             <button className="secondary-button" onClick={() => setStep("quiz")} disabled={!lastSessionWords.length}>
               <BookOpen size={19} />
-              Morning quiz
+              {t("Morning quiz")}
             </button>
           </div>
         </section>
@@ -669,9 +900,9 @@ function App() {
             <Moon size={62} />
           </div>
           <div className="player-card">
-            <p className="eyebrow">{config.targetLanguage} sleep session</p>
-            <h2>{currentItem?.targetText || "Settling in"}</h2>
-            <p className="reading">{currentItem?.reading || "Voice will begin after you tap play"}</p>
+            <p className="eyebrow">{label(config.targetLanguage)} {t("review session")}</p>
+            <h2>{currentItem?.targetText || t("Settling in")}</h2>
+            <p className="reading">{currentItem?.reading || t("Voice will begin after you tap play")}</p>
             {currentItem && (
               <p className="meaning">
                 {currentItem.meanings[config.nativeLanguage]}：{currentItem.romanization}
@@ -680,29 +911,29 @@ function App() {
             <div className="timers">
               <span>
                 <Clock3 size={16} />
-                Voice {formatTime(secondsLeft)}
+                {t("Voice")} {formatTime(secondsLeft)}
               </span>
               <span>
                 <Waves size={16} />
-                Sound {formatTime(backgroundLeft)}
+                {t("Sound")} {formatTime(backgroundLeft)}
               </span>
             </div>
             <div className="player-volume">
               <RangeControl
                 icon={<Volume2 size={18} />}
-                label="Target voice"
+                label={t("Target voice")}
                 value={config.voiceVolume}
                 onChange={(value) => updateConfig("voiceVolume", value)}
               />
               <RangeControl
                 icon={<Volume2 size={18} />}
-                label="Native voice"
+                label={t("Native voice")}
                 value={config.nativeVoiceVolume}
                 onChange={(value) => updateConfig("nativeVoiceVolume", value)}
               />
               <RangeControl
                 icon={<Waves size={18} />}
-                label="Background"
+                label={t("Background")}
                 value={config.backgroundVolume}
                 onChange={(value) => updateConfig("backgroundVolume", value)}
               />
@@ -717,22 +948,22 @@ function App() {
             </div>
           </div>
           <p className="fine-print">
-            Add this app to your home screen for the best mobile lock-screen playback support. Browser policies may vary.
+            {t("Add this app to your home screen for the best mobile lock-screen playback support. Browser policies may vary.")}
           </p>
         </section>
       )}
 
       {step === "history" && (
         <section className="screen stack">
-          <h2>Session history</h2>
-          {!history.length && <EmptyState text="Completed sessions will appear here with every word that was played." />}
+          <h2>{t("Session history")}</h2>
+          {!history.length && <EmptyState text={t("Completed sessions will appear here with every word that was played.")} />}
           {history.map((record) => (
             <article className="history-card" key={record.id}>
               <div className="history-head">
                 <div>
                   <strong>{new Date(record.date).toLocaleString()}</strong>
                   <span>
-                    {record.config.targetLanguage} · {record.config.level} · {record.playedIds.length} words
+                    {label(record.config.targetLanguage)} · {label(record.config.level)} · {record.playedIds.length} {t("words")}
                   </span>
                 </div>
                 <button className="icon-button" onClick={() => setStep("quiz")}>
@@ -743,7 +974,7 @@ function App() {
                 {record.playedIds.map((id) => {
                   const item = vocab.find((word) => word.id === id);
                   if (!item) return null;
-                  return <WordRow item={item} nativeLanguage={record.config.nativeLanguage} onFavorite={toggleFavorite} key={id} />;
+                  return <WordRow item={item} nativeLanguage={record.config.nativeLanguage} onFavorite={toggleFavorite} t={t} key={id} />;
                 })}
               </div>
             </article>
@@ -755,6 +986,7 @@ function App() {
         <QuizScreen
           words={lastSessionWords}
           nativeLanguage={config.nativeLanguage}
+          t={t}
           onBack={() => setStep("setup")}
           onKnown={(id) =>
             setVocab((items) => items.map((item) => (item.id === id ? { ...item, status: nextStatus(item.status || "New") } : item)))
@@ -766,23 +998,25 @@ function App() {
 }
 
 function buildPlaylist(vocab: VocabItem[], config: SessionConfig) {
-  const candidates = vocab.filter(
+  return vocab.filter(
     (item) =>
       item.targetLanguage === config.targetLanguage &&
       item.level === config.level &&
-      (item.topic === config.topic || item.topic === (config.targetLanguage === "Japanese" ? "JLPT" : "TOPIK"))
+      (config.topic === allTopics || item.topic === config.topic)
   );
-  const fallback = vocab.filter((item) => item.targetLanguage === config.targetLanguage && item.level === config.level);
-  const pool = candidates.length ? candidates : fallback;
-  return [...pool].sort((a, b) => {
-    const scoreA = statusWeight(a.status || "New") - (a.favorite ? 0.8 : 0) + (a.lastPlayed ? 0.4 : 0);
-    const scoreB = statusWeight(b.status || "New") - (b.favorite ? 0.8 : 0) + (b.lastPlayed ? 0.4 : 0);
-    return scoreA - scoreB;
-  });
 }
 
-function statusWeight(status: Familiarity) {
-  return status === "New" ? 0 : status === "Learning" ? 1 : status === "Familiar" ? 2 : 3;
+function getPlaylistKey(config: Pick<SessionConfig, "targetLanguage" | "level" | "topic">) {
+  return `${config.targetLanguage}:${config.level}:${config.topic}`;
+}
+
+function shuffle<T>(items: T[]) {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
 }
 
 function nextStatus(status: Familiarity): Familiarity {
@@ -806,12 +1040,22 @@ function ControlGroup({ title, children }: { title: string; children: React.Reac
   );
 }
 
-function Segmented({ options, value, onChange }: { options: string[]; value: string; onChange: (value: string) => void }) {
+function Segmented({
+  options,
+  value,
+  labelFor = (option) => option,
+  onChange,
+}: {
+  options: string[];
+  value: string;
+  labelFor?: (value: string) => string;
+  onChange: (value: string) => void;
+}) {
   return (
     <div className="segmented">
       {options.map((option) => (
         <button key={option} className={value === option ? "active" : ""} onClick={() => onChange(option)}>
-          {option}
+          {labelFor(option)}
         </button>
       ))}
     </div>
@@ -837,29 +1081,40 @@ function RangeControl({
   icon,
   label,
   value,
+  min = 0,
+  max = 1,
+  step = 0.01,
+  valueText,
   onChange,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  valueText?: string;
   onChange: (value: number) => void;
 }) {
   return (
     <label className="range-control">
       <span>
-        {icon}
-        {label}
+        <span>
+          {icon}
+          {label}
+        </span>
+        {valueText && <small>{valueText}</small>}
       </span>
-      <input type="range" min="0" max="1" step="0.01" value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
     </label>
   );
 }
 
-function Notice() {
+function Notice({ t }: { t: (text: string) => string }) {
   return (
     <div className="notice">
       <SlidersHorizontal size={20} />
-      <p>Gentle review for rest time. Fluency still needs active study, speaking, reading, and recall practice.</p>
+      <p>{t("Gentle review for rest time. Fluency still needs active study, speaking, reading, and recall practice.")}</p>
     </div>
   );
 }
@@ -868,20 +1123,22 @@ function WordRow({
   item,
   nativeLanguage,
   onFavorite,
+  t,
 }: {
   item: VocabItem;
   nativeLanguage: NativeLanguage;
   onFavorite: (id: string) => void;
+  t: (text: string) => string;
 }) {
   return (
     <div className="word-row">
       <div>
         <strong>{item.targetText}</strong>
         <span>
-          {item.meanings[nativeLanguage]} · {item.status || "New"} · played {item.timesPlayed || 0}
+          {item.meanings[nativeLanguage]} · {t(item.status || "New")} · {t("played")} {item.timesPlayed || 0}
         </span>
       </div>
-      <button className="icon-button" onClick={() => onFavorite(item.id)} aria-label="Toggle favorite">
+      <button className="icon-button" onClick={() => onFavorite(item.id)} aria-label={t("Toggle favorite")}>
         <Star size={18} fill={item.favorite ? "currentColor" : "none"} />
       </button>
     </div>
@@ -891,11 +1148,13 @@ function WordRow({
 function QuizScreen({
   words,
   nativeLanguage,
+  t,
   onBack,
   onKnown,
 }: {
   words: VocabItem[];
   nativeLanguage: NativeLanguage;
+  t: (text: string) => string;
   onBack: () => void;
   onKnown: (id: string) => void;
 }) {
@@ -906,8 +1165,8 @@ function QuizScreen({
   if (!word) {
     return (
       <section className="screen stack">
-        <EmptyState text="Finish a sleep session first, then tomorrow's recall quiz will use those words." />
-        <button className="primary-button" onClick={onBack}>Back to setup</button>
+        <EmptyState text={t("Finish a session first, then tomorrow's recall quiz will use those words.")} />
+        <button className="primary-button" onClick={onBack}>{t("Back to setup")}</button>
       </section>
     );
   }
@@ -915,10 +1174,10 @@ function QuizScreen({
   return (
     <section className="screen quiz">
       <p className="eyebrow">
-        Morning recall {index + 1}/{words.length}
+        {t("Morning recall")} {index + 1}/{words.length}
       </p>
       <h2>{word.meanings[nativeLanguage]}</h2>
-      <p className="fine-print">Try to recall the target-language word before revealing it.</p>
+      <p className="fine-print">{t("Try to recall the target-language word before revealing it.")}</p>
       {revealed && (
         <div className="answer">
           <strong>{word.targetText}</strong>
@@ -928,7 +1187,7 @@ function QuizScreen({
       )}
       <div className="quiz-actions">
         <button className="secondary-button" onClick={() => setRevealed(true)}>
-          Reveal
+          {t("Reveal")}
         </button>
         <button
           className="primary-button"
@@ -939,10 +1198,10 @@ function QuizScreen({
           }}
         >
           <Check size={18} />
-          I remembered
+          {t("I remembered")}
         </button>
       </div>
-      <button className="text-button" onClick={onBack}>Done</button>
+      <button className="text-button" onClick={onBack}>{t("Done")}</button>
     </section>
   );
 }
@@ -960,6 +1219,12 @@ createRoot(document.getElementById("root")!).render(<App />);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/public-sw.js").catch(() => undefined);
+    if (import.meta.env.PROD) {
+      navigator.serviceWorker.register("/public-sw.js").catch(() => undefined);
+      return;
+    }
+
+    void navigator.serviceWorker.getRegistrations().then((registrations) => registrations.forEach((registration) => registration.unregister()));
+    void caches.keys().then((keys) => keys.filter((key) => key.startsWith("lingosleep-")).forEach((key) => void caches.delete(key)));
   });
 }
