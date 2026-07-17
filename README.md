@@ -1,6 +1,6 @@
 # LingoSleep
 
-LingoSleep is a mobile-first nighttime vocabulary review app for Japanese and Korean. It combines curated vocabulary playback, native-language meanings, gentle recall pauses, session timers, calming generated background sounds, favorites, history, and basic progress tracking.
+LingoSleep is a mobile-first nighttime vocabulary review app for Japanese and Korean. It combines curated vocabulary playback, native-language meanings, gentle recall pauses, session timers, calming background sounds, favorites, history, and basic progress tracking.
 
 The app is designed for relaxed review while resting or falling asleep. It does not claim that users can become fluent through sleep-only learning.
 
@@ -8,13 +8,13 @@ The app is designed for relaxed review while resting or falling asleep. It does 
 
 - Onboarding and language setup
 - Japanese or Korean target language
-- English, Simplified Chinese, or Traditional Chinese native language
+- English or Simplified Chinese native language
 - Basic, Intermediate, and Advanced levels
 - Topic-based playlists
 - Four playback modes
 - Separate language and background timers
 - Separate voice and background volume controls
-- Background ducking while voice is speaking
+- Soft rain, heavy rain, and Rain and Thunder audio backgrounds
 - Gradual language fade at session end
 - PWA manifest, service worker, and Media Session metadata for mobile/lock-screen support where supported by the browser
 - Favorites, session history, and progress status

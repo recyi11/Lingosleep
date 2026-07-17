@@ -49,6 +49,7 @@ for (const testCase of cases) {
         backgroundMinutes: 10,
         backgroundSound: "none",
         voiceVolume: 0.72,
+        nativeVoiceVolume: 0.95,
         backgroundVolume: 0,
       };
 

@@ -18,47 +18,23 @@ import {
   Waves,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import {
+  vocabSeed,
+  type Familiarity,
+  type Level,
+  type NativeLanguage,
+  type TargetLanguage,
+  type Topic,
+  type VocabItem,
+} from "./vocabulary";
 import "./styles.css";
 
-type TargetLanguage = "Japanese" | "Korean";
-type NativeLanguage = "English" | "Simplified Chinese" | "Traditional Chinese";
-type Level = "Basic" | "Intermediate" | "Advanced";
-type Topic =
-  | "food"
-  | "travel"
-  | "daily life"
-  | "numbers"
-  | "common verbs"
-  | "work"
-  | "school"
-  | "anime/drama"
-  | "JLPT"
-  | "TOPIK";
 type PlaybackMode =
   | "Native word -> target word -> target word"
   | "Recall mode"
   | "Word and example sentence"
   | "Target-language-only immersion";
-type BackgroundSound = "rain" | "white noise" | "brown noise" | "fireplace" | "none";
-type Familiarity = "New" | "Learning" | "Familiar" | "Mastered";
-
-type VocabItem = {
-  id: string;
-  targetLanguage: TargetLanguage;
-  targetText: string;
-  meanings: Record<NativeLanguage, string>;
-  reading: string;
-  romanization: string;
-  level: Level;
-  topic: Topic;
-  exampleSentence: string;
-  exampleTranslations: Record<NativeLanguage, string>;
-  status?: Familiarity;
-  favorite?: boolean;
-  timesPlayed?: number;
-  lastPlayed?: string;
-};
-
+type BackgroundSound = "soft rain" | "heavy rain" | "Rain and Thunder" | "white noise" | "brown noise" | "fireplace" | "none";
 type PersistedVocabMetadata = Pick<VocabItem, "status" | "favorite" | "timesPlayed" | "lastPlayed">;
 
 type SessionConfig = {
@@ -71,6 +47,7 @@ type SessionConfig = {
   backgroundMinutes: number;
   backgroundSound: BackgroundSound;
   voiceVolume: number;
+  nativeVoiceVolume: number;
   backgroundVolume: number;
 };
 
@@ -81,7 +58,9 @@ type SessionRecord = {
   playedIds: string[];
 };
 
-const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese", "Traditional Chinese"];
+const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese"];
+const koreanVoiceBoost = 1.3;
+const softRainBoost = 1.3;
 const levels: Level[] = ["Basic", "Intermediate", "Advanced"];
 const topics: Topic[] = [
   "food",
@@ -102,7 +81,12 @@ const modes: PlaybackMode[] = [
   "Target-language-only immersion",
 ];
 const durations = [10, 20, 30, 45, 60];
-const backgroundSounds: BackgroundSound[] = ["rain", "white noise", "brown noise", "fireplace", "none"];
+const backgroundSounds: BackgroundSound[] = ["soft rain", "heavy rain", "Rain and Thunder", "white noise", "brown noise", "fireplace", "none"];
+const rainSoundUrls: Partial<Record<BackgroundSound, string>> = {
+  "soft rain": "/audio/background/soft-rain.mp3",
+  "heavy rain": "/audio/background/heavy-rain.mp3",
+  "Rain and Thunder": "/audio/background/thunderstorm.mp3",
+};
 
 const defaultConfig: SessionConfig = {
   targetLanguage: "Japanese",
@@ -112,237 +96,11 @@ const defaultConfig: SessionConfig = {
   mode: "Recall mode",
   languageMinutes: 20,
   backgroundMinutes: 45,
-  backgroundSound: "rain",
+  backgroundSound: "soft rain",
   voiceVolume: 0.72,
+  nativeVoiceVolume: 0.95,
   backgroundVolume: 0.34,
 };
-
-const vocabSeed: VocabItem[] = [
-  {
-    id: "ja-food-basic-1",
-    targetLanguage: "Japanese",
-    targetText: "ご飯",
-    meanings: { English: "meal; cooked rice", "Simplified Chinese": "米饭；餐", "Traditional Chinese": "米飯；餐" },
-    reading: "ごはん",
-    romanization: "gohan",
-    level: "Basic",
-    topic: "food",
-    exampleSentence: "朝ご飯を食べます。",
-    exampleTranslations: { English: "I eat breakfast.", "Simplified Chinese": "我吃早饭。", "Traditional Chinese": "我吃早飯。" },
-  },
-  {
-    id: "ja-travel-basic-1",
-    targetLanguage: "Japanese",
-    targetText: "駅",
-    meanings: { English: "station", "Simplified Chinese": "车站", "Traditional Chinese": "車站" },
-    reading: "えき",
-    romanization: "eki",
-    level: "Basic",
-    topic: "travel",
-    exampleSentence: "駅はどこですか。",
-    exampleTranslations: { English: "Where is the station?", "Simplified Chinese": "车站在哪里？", "Traditional Chinese": "車站在哪裡？" },
-  },
-  {
-    id: "ja-life-basic-1",
-    targetLanguage: "Japanese",
-    targetText: "寝る",
-    meanings: { English: "to sleep", "Simplified Chinese": "睡觉", "Traditional Chinese": "睡覺" },
-    reading: "ねる",
-    romanization: "neru",
-    level: "Basic",
-    topic: "daily life",
-    exampleSentence: "十一時に寝ます。",
-    exampleTranslations: { English: "I go to sleep at eleven.", "Simplified Chinese": "我十一点睡觉。", "Traditional Chinese": "我十一點睡覺。" },
-  },
-  {
-    id: "ja-numbers-basic-1",
-    targetLanguage: "Japanese",
-    targetText: "七",
-    meanings: { English: "seven", "Simplified Chinese": "七", "Traditional Chinese": "七" },
-    reading: "なな / しち",
-    romanization: "nana / shichi",
-    level: "Basic",
-    topic: "numbers",
-    exampleSentence: "七つください。",
-    exampleTranslations: { English: "Seven, please.", "Simplified Chinese": "请给我七个。", "Traditional Chinese": "請給我七個。" },
-  },
-  {
-    id: "ja-verbs-basic-1",
-    targetLanguage: "Japanese",
-    targetText: "見る",
-    meanings: { English: "to see; to watch", "Simplified Chinese": "看", "Traditional Chinese": "看" },
-    reading: "みる",
-    romanization: "miru",
-    level: "Basic",
-    topic: "common verbs",
-    exampleSentence: "映画を見ます。",
-    exampleTranslations: { English: "I watch a movie.", "Simplified Chinese": "我看电影。", "Traditional Chinese": "我看電影。" },
-  },
-  {
-    id: "ja-work-intermediate-1",
-    targetLanguage: "Japanese",
-    targetText: "会議",
-    meanings: { English: "meeting; conference", "Simplified Chinese": "会议", "Traditional Chinese": "會議" },
-    reading: "かいぎ",
-    romanization: "kaigi",
-    level: "Intermediate",
-    topic: "work",
-    exampleSentence: "午後に会議があります。",
-    exampleTranslations: { English: "There is a meeting in the afternoon.", "Simplified Chinese": "下午有会议。", "Traditional Chinese": "下午有會議。" },
-  },
-  {
-    id: "ja-school-intermediate-1",
-    targetLanguage: "Japanese",
-    targetText: "課題",
-    meanings: { English: "assignment; task", "Simplified Chinese": "课题；作业", "Traditional Chinese": "課題；作業" },
-    reading: "かだい",
-    romanization: "kadai",
-    level: "Intermediate",
-    topic: "school",
-    exampleSentence: "課題を提出しました。",
-    exampleTranslations: { English: "I submitted the assignment.", "Simplified Chinese": "我提交了作业。", "Traditional Chinese": "我提交了作業。" },
-  },
-  {
-    id: "ja-anime-intermediate-1",
-    targetLanguage: "Japanese",
-    targetText: "主人公",
-    meanings: { English: "main character", "Simplified Chinese": "主角", "Traditional Chinese": "主角" },
-    reading: "しゅじんこう",
-    romanization: "shujinko",
-    level: "Intermediate",
-    topic: "anime/drama",
-    exampleSentence: "主人公は勇敢です。",
-    exampleTranslations: { English: "The main character is brave.", "Simplified Chinese": "主角很勇敢。", "Traditional Chinese": "主角很勇敢。" },
-  },
-  {
-    id: "ja-jlpt-advanced-1",
-    targetLanguage: "Japanese",
-    targetText: "恐縮",
-    meanings: { English: "feeling obliged; humbled", "Simplified Chinese": "惶恐；不好意思", "Traditional Chinese": "惶恐；不好意思" },
-    reading: "きょうしゅく",
-    romanization: "kyoshuku",
-    level: "Advanced",
-    topic: "JLPT",
-    exampleSentence: "お手数をおかけして恐縮です。",
-    exampleTranslations: {
-      English: "I am sorry to trouble you.",
-      "Simplified Chinese": "给您添麻烦，我很不好意思。",
-      "Traditional Chinese": "給您添麻煩，我很不好意思。",
-    },
-  },
-  {
-    id: "ko-food-basic-1",
-    targetLanguage: "Korean",
-    targetText: "밥",
-    meanings: { English: "rice; meal", "Simplified Chinese": "米饭；饭", "Traditional Chinese": "米飯；飯" },
-    reading: "밥",
-    romanization: "bap",
-    level: "Basic",
-    topic: "food",
-    exampleSentence: "밥을 먹어요.",
-    exampleTranslations: { English: "I eat a meal.", "Simplified Chinese": "我吃饭。", "Traditional Chinese": "我吃飯。" },
-  },
-  {
-    id: "ko-travel-basic-1",
-    targetLanguage: "Korean",
-    targetText: "역",
-    meanings: { English: "station", "Simplified Chinese": "车站", "Traditional Chinese": "車站" },
-    reading: "역",
-    romanization: "yeok",
-    level: "Basic",
-    topic: "travel",
-    exampleSentence: "역이 어디예요?",
-    exampleTranslations: { English: "Where is the station?", "Simplified Chinese": "车站在哪里？", "Traditional Chinese": "車站在哪裡？" },
-  },
-  {
-    id: "ko-life-basic-1",
-    targetLanguage: "Korean",
-    targetText: "자다",
-    meanings: { English: "to sleep", "Simplified Chinese": "睡觉", "Traditional Chinese": "睡覺" },
-    reading: "자다",
-    romanization: "jada",
-    level: "Basic",
-    topic: "daily life",
-    exampleSentence: "열한 시에 자요.",
-    exampleTranslations: { English: "I sleep at eleven.", "Simplified Chinese": "我十一点睡觉。", "Traditional Chinese": "我十一點睡覺。" },
-  },
-  {
-    id: "ko-numbers-basic-1",
-    targetLanguage: "Korean",
-    targetText: "일곱",
-    meanings: { English: "seven", "Simplified Chinese": "七", "Traditional Chinese": "七" },
-    reading: "일곱",
-    romanization: "ilgop",
-    level: "Basic",
-    topic: "numbers",
-    exampleSentence: "일곱 개 주세요.",
-    exampleTranslations: { English: "Seven, please.", "Simplified Chinese": "请给我七个。", "Traditional Chinese": "請給我七個。" },
-  },
-  {
-    id: "ko-verbs-basic-1",
-    targetLanguage: "Korean",
-    targetText: "보다",
-    meanings: { English: "to see; to watch", "Simplified Chinese": "看", "Traditional Chinese": "看" },
-    reading: "보다",
-    romanization: "boda",
-    level: "Basic",
-    topic: "common verbs",
-    exampleSentence: "드라마를 봐요.",
-    exampleTranslations: { English: "I watch a drama.", "Simplified Chinese": "我看电视剧。", "Traditional Chinese": "我看電視劇。" },
-  },
-  {
-    id: "ko-work-intermediate-1",
-    targetLanguage: "Korean",
-    targetText: "회의",
-    meanings: { English: "meeting", "Simplified Chinese": "会议", "Traditional Chinese": "會議" },
-    reading: "회의",
-    romanization: "hoeui",
-    level: "Intermediate",
-    topic: "work",
-    exampleSentence: "오후에 회의가 있어요.",
-    exampleTranslations: { English: "There is a meeting in the afternoon.", "Simplified Chinese": "下午有会议。", "Traditional Chinese": "下午有會議。" },
-  },
-  {
-    id: "ko-school-intermediate-1",
-    targetLanguage: "Korean",
-    targetText: "과제",
-    meanings: { English: "assignment", "Simplified Chinese": "作业；课题", "Traditional Chinese": "作業；課題" },
-    reading: "과제",
-    romanization: "gwaje",
-    level: "Intermediate",
-    topic: "school",
-    exampleSentence: "과제를 냈어요.",
-    exampleTranslations: { English: "I turned in the assignment.", "Simplified Chinese": "我交了作业。", "Traditional Chinese": "我交了作業。" },
-  },
-  {
-    id: "ko-drama-intermediate-1",
-    targetLanguage: "Korean",
-    targetText: "주인공",
-    meanings: { English: "main character", "Simplified Chinese": "主角", "Traditional Chinese": "主角" },
-    reading: "주인공",
-    romanization: "juingong",
-    level: "Intermediate",
-    topic: "anime/drama",
-    exampleSentence: "주인공이 용감해요.",
-    exampleTranslations: { English: "The main character is brave.", "Simplified Chinese": "主角很勇敢。", "Traditional Chinese": "主角很勇敢。" },
-  },
-  {
-    id: "ko-topik-advanced-1",
-    targetLanguage: "Korean",
-    targetText: "유지하다",
-    meanings: { English: "to maintain", "Simplified Chinese": "维持", "Traditional Chinese": "維持" },
-    reading: "유지하다",
-    romanization: "yujihada",
-    level: "Advanced",
-    topic: "TOPIK",
-    exampleSentence: "건강한 습관을 유지해야 합니다.",
-    exampleTranslations: {
-      English: "You should maintain healthy habits.",
-      "Simplified Chinese": "应该维持健康的习惯。",
-      "Traditional Chinese": "應該維持健康的習慣。",
-    },
-  },
-];
 
 const familiarityValues: Familiarity[] = ["New", "Learning", "Familiar", "Mastered"];
 
@@ -353,6 +111,29 @@ function loadJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function normalizeConfig(config: SessionConfig): SessionConfig {
+  const storedBackground = (config as { backgroundSound?: string }).backgroundSound;
+  const backgroundSound =
+    storedBackground === "rain"
+      ? "soft rain"
+      : storedBackground === "thunderstorm"
+        ? "Rain and Thunder"
+      : backgroundSounds.includes(storedBackground as BackgroundSound)
+        ? (storedBackground as BackgroundSound)
+        : defaultConfig.backgroundSound;
+  const nativeVoiceVolume =
+    typeof (config as SessionConfig & { nativeVoiceVolume?: unknown }).nativeVoiceVolume === "number"
+      ? (config as SessionConfig & { nativeVoiceVolume: number }).nativeVoiceVolume
+      : Math.min(1, config.voiceVolume * 1.35);
+
+  return {
+    ...config,
+    backgroundSound,
+    nativeVoiceVolume,
+    nativeLanguage: nativeLanguages.includes(config.nativeLanguage) ? config.nativeLanguage : "Simplified Chinese",
+  };
 }
 
 function withDefaultMetadata(item: VocabItem): VocabItem {
@@ -410,14 +191,11 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
-function createNoiseSource(ctx: AudioContext, sound: BackgroundSound) {
+function createNoiseSource(ctx: AudioContext, sound: Exclude<BackgroundSound, "soft rain" | "heavy rain" | "Rain and Thunder" | "none">) {
   const bufferSize = ctx.sampleRate * 2;
   const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
   const data = buffer.getChannelData(0);
   let last = 0;
-  let rainBed = 0;
-  let rainRumble = 0;
-  let rainDrop = 0;
   for (let i = 0; i < bufferSize; i += 1) {
     const white = Math.random() * 2 - 1;
     if (sound === "brown noise") {
@@ -425,14 +203,6 @@ function createNoiseSource(ctx: AudioContext, sound: BackgroundSound) {
       data[i] = last * 3.5;
     } else if (sound === "fireplace") {
       data[i] = Math.random() > 0.985 ? white * 0.9 : white * 0.08;
-    } else if (sound === "rain") {
-      rainBed = rainBed * 0.82 + white * 0.18;
-      rainRumble = rainRumble * 0.985 + white * 0.015;
-      if (Math.random() > 0.992) {
-        rainDrop += (Math.random() * 2 - 1) * 0.7;
-      }
-      rainDrop *= 0.88;
-      data[i] = rainBed * 0.18 + rainRumble * 0.35 + rainDrop * 0.32;
     } else {
       data[i] = white * 0.22;
     }
@@ -448,24 +218,48 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
   const gainRef = useRef<GainNode | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const volumeRef = useRef(volume);
-  const duckedRef = useRef(false);
 
   useEffect(() => {
     volumeRef.current = volume;
   }, [volume]);
 
+  const gainVolume = () => Math.min(1, volumeRef.current * (sound === "soft rain" ? softRainBoost : 1));
+
   const start = () => {
-    if (sound === "none" || sourceRef.current) return;
-    duckedRef.current = false;
+    if (sound === "none" || sourceRef.current || ctxRef.current) return;
     const ctx = new AudioContext();
     const gain = ctx.createGain();
-    const source = createNoiseSource(ctx, sound);
     gain.gain.cancelScheduledValues(ctx.currentTime);
-    gain.gain.value = volumeRef.current;
-    source.connect(gain).connect(ctx.destination);
-    source.start();
+    gain.gain.value = gainVolume();
     ctxRef.current = ctx;
     gainRef.current = gain;
+
+    if (sound === "soft rain" || sound === "heavy rain" || sound === "Rain and Thunder") {
+      const rainSoundUrl = rainSoundUrls[sound]!;
+      void fetch(rainSoundUrl)
+        .then((response) => response.arrayBuffer())
+        .then((data) => ctx.decodeAudioData(data))
+        .then((buffer) => {
+          if (ctxRef.current !== ctx) return;
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.loop = true;
+          source.connect(gain).connect(ctx.destination);
+          source.start();
+          sourceRef.current = source;
+        })
+        .catch(() => {
+          if (ctxRef.current !== ctx) return;
+          void ctx.close().catch(() => undefined);
+          ctxRef.current = null;
+          gainRef.current = null;
+        });
+      return;
+    }
+
+    const source = createNoiseSource(ctx, sound);
+    source.connect(gain).connect(ctx.destination);
+    source.start();
     sourceRef.current = source;
   };
 
@@ -486,30 +280,20 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
       }
     }
     sourceRef.current = null;
-    duckedRef.current = false;
     gainRef.current = null;
     ctxRef.current = null;
   };
 
-  const duck = (active: boolean) => {
-    const ctx = ctxRef.current;
-    const gain = gainRef.current;
-    if (!ctx || !gain) return;
-    duckedRef.current = active;
-    const currentVolume = volumeRef.current;
-    gain.gain.cancelScheduledValues(ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(active ? currentVolume * 0.28 : currentVolume, ctx.currentTime + 0.45);
-  };
+  const duck = (_active: boolean) => undefined;
 
   useEffect(() => {
     const gain = gainRef.current;
     const ctx = ctxRef.current;
     if (gain && ctx) {
-      const targetVolume = duckedRef.current ? volume * 0.28 : volume;
       gain.gain.cancelScheduledValues(ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(targetVolume, ctx.currentTime + 0.25);
+      gain.gain.linearRampToValueAtTime(gainVolume(), ctx.currentTime + 0.25);
     }
-  }, [volume]);
+  }, [volume, sound]);
 
   useEffect(() => stop, []);
 
@@ -517,7 +301,7 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
 }
 
 function App() {
-  const [config, setConfig] = useState<SessionConfig>(() => loadJson("lingosleep-config", defaultConfig));
+  const [config, setConfig] = useState<SessionConfig>(() => normalizeConfig(loadJson("lingosleep-config", defaultConfig)));
   const configRef = useRef(config);
   const [vocab, setVocab] = useState<VocabItem[]>(() => {
     const stored = loadJson<unknown>("lingosleep-vocab", null);
@@ -623,17 +407,20 @@ function App() {
   const speakItem = async (item: VocabItem, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return;
     const sessionConfig = config;
-    const voiceVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
+    const baseVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
+    const targetBoost = sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
+    const voiceVolume = (multiplier = 1) => Math.min(1, baseVolume(multiplier) * targetBoost);
+    const nativeVolume = (multiplier = 1) => Math.min(1, configRef.current.nativeVoiceVolume * multiplier);
     setCurrentItem(item);
     background.duck(true);
     if (sessionConfig.mode === "Native word -> target word -> target word") {
-      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
       if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
       if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(0.92), sessionToken))) return;
     } else if (sessionConfig.mode === "Recall mode") {
-      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(2800, sessionToken))) return;
       background.duck(true);
       if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
@@ -642,11 +429,11 @@ function App() {
     } else if (sessionConfig.mode === "Word and example sentence") {
       if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, voiceVolume(0.88), sessionToken))) return;
+      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(0.88), sessionToken))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
       if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.84), sessionToken))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleTranslations[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, voiceVolume(0.74), sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleTranslations[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(0.74), sessionToken))) return;
     } else {
       if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
@@ -714,6 +501,13 @@ function App() {
     }
   };
 
+  const goToSetup = () => {
+    if (playingRef.current) {
+      stopSession(true);
+    }
+    setStep("setup");
+  };
+
   const toggleFavorite = (id: string) => {
     setVocab((items) => items.map((item) => (item.id === id ? { ...item, favorite: !item.favorite } : item)));
   };
@@ -723,7 +517,7 @@ function App() {
       <div className="app-bg" />
       {step !== "onboarding" && (
         <header className="topbar">
-          <button className="icon-button" onClick={() => setStep("setup")} aria-label="Back to setup">
+          <button className="icon-button" onClick={goToSetup} aria-label="Back to setup">
             <ChevronLeft size={22} />
           </button>
           <div>
@@ -839,9 +633,15 @@ function App() {
           <ControlGroup title="Volume">
             <RangeControl
               icon={<Volume2 size={18} />}
-              label="Voice"
+              label="Target voice"
               value={config.voiceVolume}
               onChange={(value) => updateConfig("voiceVolume", value)}
+            />
+            <RangeControl
+              icon={<Volume2 size={18} />}
+              label="Native voice"
+              value={config.nativeVoiceVolume}
+              onChange={(value) => updateConfig("nativeVoiceVolume", value)}
             />
             <RangeControl
               icon={<Waves size={18} />}
@@ -874,7 +674,7 @@ function App() {
             <p className="reading">{currentItem?.reading || "Voice will begin after you tap play"}</p>
             {currentItem && (
               <p className="meaning">
-                {currentItem.meanings[config.nativeLanguage]} · {currentItem.romanization}
+                {currentItem.meanings[config.nativeLanguage]}：{currentItem.romanization}
               </p>
             )}
             <div className="timers">
@@ -890,9 +690,15 @@ function App() {
             <div className="player-volume">
               <RangeControl
                 icon={<Volume2 size={18} />}
-                label="Voice"
+                label="Target voice"
                 value={config.voiceVolume}
                 onChange={(value) => updateConfig("voiceVolume", value)}
+              />
+              <RangeControl
+                icon={<Volume2 size={18} />}
+                label="Native voice"
+                value={config.nativeVoiceVolume}
+                onChange={(value) => updateConfig("nativeVoiceVolume", value)}
               />
               <RangeControl
                 icon={<Waves size={18} />}
