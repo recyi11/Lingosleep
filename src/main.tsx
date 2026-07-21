@@ -54,6 +54,7 @@ type SessionConfig = {
   nativeVoiceVolume: number;
   targetVoiceRate: number;
   nativeVoiceRate: number;
+  targetDelaySeconds: number;
   pauseSeconds: number;
   backgroundVolume: number;
 };
@@ -127,6 +128,7 @@ const simplifiedChineseLabels: Record<string, string> = {
   Volume: "音量",
   "Target voice": "目标语音量",
   "Native voice": "母语音量",
+  "Meaning to target delay": "释义到目标词间隔",
   Background: "背景音量",
   "Pause between words": "单词间隔",
   "Start random session": "开始随机复习",
@@ -207,6 +209,7 @@ const defaultConfig: SessionConfig = {
   nativeVoiceVolume: 0.95,
   targetVoiceRate: 1,
   nativeVoiceRate: 1,
+  targetDelaySeconds: 0.3,
   pauseSeconds: 1.6,
   backgroundVolume: 0.34,
 };
@@ -249,6 +252,10 @@ function normalizeConfig(config: SessionConfig): SessionConfig {
     typeof (config as SessionConfig & { pauseSeconds?: unknown }).pauseSeconds === "number"
       ? (config as SessionConfig & { pauseSeconds: number }).pauseSeconds
       : defaultConfig.pauseSeconds;
+  const targetDelaySeconds =
+    typeof (config as SessionConfig & { targetDelaySeconds?: unknown }).targetDelaySeconds === "number"
+      ? (config as SessionConfig & { targetDelaySeconds: number }).targetDelaySeconds
+      : defaultConfig.targetDelaySeconds;
 
   return {
     ...config,
@@ -260,6 +267,7 @@ function normalizeConfig(config: SessionConfig): SessionConfig {
     nativeVoiceVolume,
     targetVoiceRate,
     nativeVoiceRate,
+    targetDelaySeconds,
     pauseSeconds,
     nativeLanguage: nativeLanguages.includes(config.nativeLanguage) ? config.nativeLanguage : "Simplified Chinese",
   };
@@ -298,8 +306,9 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
       return;
     }
 
+    const synth = window.speechSynthesis;
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang =
+    const speechLang =
       lang === "Japanese"
         ? "ja-JP"
         : lang === "Korean"
@@ -309,13 +318,40 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
             : lang === "Traditional Chinese"
               ? "zh-TW"
               : "en-US";
+    utterance.lang = speechLang;
     utterance.rate = (lang === "English" ? 0.78 : 0.72) * rateMultiplier;
     utterance.pitch = 0.84;
     utterance.volume = volume;
     utterance.onend = () => resolve();
     utterance.onerror = () => resolve();
-    window.speechSynthesis.speak(utterance);
+
+    let spoken = false;
+    const speakWithBestVoice = (voices: SpeechSynthesisVoice[]) => {
+      if (spoken) return;
+      spoken = true;
+      utterance.voice =
+        voices.find((voice) => voice.lang === speechLang) ||
+        voices.find((voice) => voice.lang.toLowerCase().startsWith(speechLang.slice(0, 2).toLowerCase())) ||
+        null;
+      synth.speak(utterance);
+    };
+
+    const voices = synth.getVoices();
+    if (voices.length) {
+      speakWithBestVoice(voices);
+      return;
+    }
+
+    const timer = window.setTimeout(() => speakWithBestVoice(synth.getVoices()), 500);
+    synth.onvoiceschanged = () => {
+      window.clearTimeout(timer);
+      speakWithBestVoice(synth.getVoices());
+    };
   });
+}
+
+function targetAudioPath(item: VocabItem, kind: "word" | "example") {
+  return `/audio/target/${item.id}-${kind}.mp3`;
 }
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -453,6 +489,7 @@ function App() {
   const playingRef = useRef(false);
   const sessionTokenRef = useRef(0);
   const playedIdsRef = useRef<string[]>([]);
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const background = useBackgroundSound(config.backgroundSound, config.backgroundVolume);
   const availableTopics = useMemo(
     () => [
@@ -540,13 +577,61 @@ function App() {
 
   const isSessionActive = (sessionToken: number) => playingRef.current && sessionTokenRef.current === sessionToken;
 
+  const stopActiveAudio = () => {
+    const audio = activeAudioRef.current;
+    if (!audio) return;
+    audio.pause();
+    activeAudioRef.current = null;
+  };
+
+  const playAudioIfPlaying = async (src: string, volume: number, rateMultiplier: number, sessionToken: number) => {
+    if (!isSessionActive(sessionToken)) return false;
+
+    const audio = new Audio(src);
+    activeAudioRef.current = audio;
+    audio.volume = volume;
+    audio.playbackRate = rateMultiplier;
+
+    const finished = new Promise<boolean>((resolve) => {
+      let settled = false;
+      const settle = (played: boolean) => {
+        if (settled) return;
+        settled = true;
+        audio.onended = null;
+        audio.onerror = null;
+        audio.onpause = null;
+        resolve(played);
+      };
+      audio.onended = () => settle(true);
+      audio.onerror = () => settle(false);
+      audio.onpause = () => settle(false);
+    });
+
+    try {
+      await audio.play();
+    } catch {
+      if (activeAudioRef.current === audio) activeAudioRef.current = null;
+      return false;
+    }
+
+    const played = await finished;
+    if (activeAudioRef.current === audio) activeAudioRef.current = null;
+    return played && isSessionActive(sessionToken);
+  };
+
   const speakIfPlaying = async (
     text: string,
     lang: TargetLanguage | NativeLanguage,
     volume: number,
-    sessionToken: number
+    sessionToken: number,
+    audioSrc?: string
   ) => {
     if (!isSessionActive(sessionToken)) return false;
+    if (audioSrc) {
+      const playedAudio = await playAudioIfPlaying(audioSrc, volume, configRef.current.targetVoiceRate, sessionToken);
+      if (!isSessionActive(sessionToken)) return false;
+      if (playedAudio) return true;
+    }
     const rate = lang === configRef.current.targetLanguage ? configRef.current.targetVoiceRate : configRef.current.nativeVoiceRate;
     await speak(text, lang, volume, rate);
     return isSessionActive(sessionToken);
@@ -561,6 +646,7 @@ function App() {
   const speakItem = async (item: VocabItem, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return;
     const sessionConfig = config;
+    const targetSpeechText = sessionConfig.targetLanguage === "Japanese" ? item.reading : item.targetText;
     const baseVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
     const targetBoost = sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
     const voiceVolume = (multiplier = 1) => Math.min(1, baseVolume(multiplier) * targetBoost);
@@ -569,29 +655,29 @@ function App() {
     background.duck(true);
     if (sessionConfig.mode === "Native word -> target word -> target word") {
       if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken))) return;
-      if (!(await waitIfPlaying(900, sessionToken))) return;
-      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await waitIfPlaying(configRef.current.targetDelaySeconds * 1000, sessionToken))) return;
+      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken, targetAudioPath(item, "word")))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(0.92), sessionToken))) return;
+      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(0.92), sessionToken, targetAudioPath(item, "word")))) return;
     } else if (sessionConfig.mode === "Recall mode") {
       if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(2800, sessionToken))) return;
       background.duck(true);
-      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken, targetAudioPath(item, "word")))) return;
       if (!(await waitIfPlaying(500, sessionToken))) return;
-      if (!(await speakIfPlaying(item.reading, sessionConfig.targetLanguage, voiceVolume(0.82), sessionToken))) return;
+      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(0.82), sessionToken, targetAudioPath(item, "word")))) return;
     } else if (sessionConfig.mode === "Word and example sentence") {
-      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken, targetAudioPath(item, "word")))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
       if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(0.88), sessionToken))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.84), sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.84), sessionToken, targetAudioPath(item, "example")))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
       if (!(await speakIfPlaying(item.exampleTranslations[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(0.74), sessionToken))) return;
     } else {
-      if (!(await speakIfPlaying(item.targetText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken, targetAudioPath(item, "word")))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.78), sessionToken))) return;
+      if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.78), sessionToken, targetAudioPath(item, "example")))) return;
     }
     if (!isSessionActive(sessionToken)) return;
     background.duck(false);
@@ -638,6 +724,7 @@ function App() {
   const stopSession = (save: boolean) => {
     playingRef.current = false;
     sessionTokenRef.current += 1;
+    stopActiveAudio();
     window.speechSynthesis?.cancel();
     background.stop();
     setIsPlaying(false);
@@ -837,6 +924,16 @@ function App() {
               label={t("Background sound")}
               value={config.backgroundMinutes}
               onChange={(value) => updateConfig("backgroundMinutes", value)}
+            />
+            <RangeControl
+              icon={<Clock3 size={18} />}
+              label={t("Meaning to target delay")}
+              value={config.targetDelaySeconds}
+              min={0}
+              max={2}
+              step={0.1}
+              valueText={`${config.targetDelaySeconds.toFixed(1)}s`}
+              onChange={(value) => updateConfig("targetDelaySeconds", value)}
             />
             <RangeControl
               icon={<Clock3 size={18} />}

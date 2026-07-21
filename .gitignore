@@ -6,5 +6,6 @@ dist/
 .DS_Store
 *.local
 npm-debug.log*
+.codex-vite*.log
 playwright-report/
 test-results/
