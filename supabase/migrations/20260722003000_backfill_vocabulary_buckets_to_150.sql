@@ -13,8 +13,8 @@ language plpgsql
 as $$
 declare
   current_count integer;
-  modifier jsonb;
-  head jsonb;
+  modifier text;
+  head text;
   target_text text;
   meaning_en text;
   meaning_zh_cn text;
@@ -26,13 +26,13 @@ begin
     and level = p_level
     and topic = p_topic;
 
-  for modifier in select value from jsonb_array_elements(p_modifiers) loop
-    for head in select value from jsonb_array_elements(p_heads) loop
+  for modifier in select value::text from jsonb_array_elements(p_modifiers) loop
+    for head in select value::text from jsonb_array_elements(p_heads) loop
       exit when current_count >= 150;
       current_count := current_count + 1;
-      target_text := modifier->>'target' || p_target_separator || head->>'target';
-      meaning_en := modifier->>'en' || ' ' || head->>'en';
-      meaning_zh_cn := modifier->>'zh' || head->>'zh';
+      target_text := jsonb_extract_path_text(modifier::jsonb, 'target') || p_target_separator || jsonb_extract_path_text(head::jsonb, 'target');
+      meaning_en := jsonb_extract_path_text(modifier::jsonb, 'en') || ' ' || jsonb_extract_path_text(head::jsonb, 'en');
+      meaning_zh_cn := jsonb_extract_path_text(modifier::jsonb, 'zh') || jsonb_extract_path_text(head::jsonb, 'zh');
 
       insert into public.vocabulary (
         id,
@@ -140,7 +140,7 @@ select public.backfill_vocabulary_bucket_to_150('ja-numbers-basic', 'ja', 'basic
   {"target":"六つの","en":"six","zh":"六个"},{"target":"七つの","en":"seven","zh":"七个"},{"target":"八つの","en":"eight","zh":"八个"},{"target":"九つの","en":"nine","zh":"九个"},{"target":"十の","en":"ten","zh":"十个"},
   {"target":"少ない","en":"few","zh":"少量"},{"target":"多い","en":"many","zh":"很多"},{"target":"半分の","en":"half","zh":"一半的"},{"target":"全部の","en":"all","zh":"全部的"},{"target":"最後の","en":"last","zh":"最后的"}
 ]'::jsonb, '[
-  {"target":"個","en":"items","zh":"个物品"},{"target":"人","en":"people","zh":"个人"},{"target":"円","en":"yen","zh":"日元"},{"target":"時","en":"o'clock","zh":"点钟"},{"target":"分","en":"minutes","zh":"分钟"},
+  {"target":"個","en":"items","zh":"个物品"},{"target":"人","en":"people","zh":"个人"},{"target":"円","en":"yen","zh":"日元"},{"target":"時","en":"o''clock","zh":"点钟"},{"target":"分","en":"minutes","zh":"分钟"},
   {"target":"日","en":"days","zh":"天"},{"target":"回","en":"times","zh":"次"},{"target":"枚","en":"flat objects","zh":"张"},{"target":"本","en":"long objects","zh":"根"},{"target":"冊","en":"books","zh":"本书"}
 ]'::jsonb);
 
@@ -149,7 +149,7 @@ select public.backfill_vocabulary_bucket_to_150('ko-numbers-basic', 'ko', 'basic
   {"target":"여섯","en":"six","zh":"六个"},{"target":"일곱","en":"seven","zh":"七个"},{"target":"여덟","en":"eight","zh":"八个"},{"target":"아홉","en":"nine","zh":"九个"},{"target":"열","en":"ten","zh":"十个"},
   {"target":"적은","en":"few","zh":"少量"},{"target":"많은","en":"many","zh":"很多"},{"target":"반","en":"half","zh":"一半的"},{"target":"모든","en":"all","zh":"全部的"},{"target":"마지막","en":"last","zh":"最后的"}
 ]'::jsonb, '[
-  {"target":"개","en":"items","zh":"个物品"},{"target":"명","en":"people","zh":"个人"},{"target":"원","en":"won","zh":"韩元"},{"target":"시","en":"o'clock","zh":"点钟"},{"target":"분","en":"minutes","zh":"分钟"},
+  {"target":"개","en":"items","zh":"个物品"},{"target":"명","en":"people","zh":"个人"},{"target":"원","en":"won","zh":"韩元"},{"target":"시","en":"o''clock","zh":"点钟"},{"target":"분","en":"minutes","zh":"分钟"},
   {"target":"일","en":"days","zh":"天"},{"target":"번","en":"times","zh":"次"},{"target":"장","en":"flat objects","zh":"张"},{"target":"병","en":"bottles","zh":"瓶"},{"target":"권","en":"books","zh":"本书"}
 ]'::jsonb);
 
