@@ -5,6 +5,7 @@ declare global {
   interface Window {
     __spoken: string[];
     __spokenVoices?: Array<string | null>;
+    __audioAttempts?: number;
   }
 }
 
@@ -187,6 +188,7 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
 
       window.__spoken = [];
       window.__spokenVoices = [];
+      window.__audioAttempts = 0;
 
       class FakeAudio {
         onended: (() => void) | null = null;
@@ -195,9 +197,8 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
         volume = 1;
         playbackRate = 1;
 
-        play() {
-          this.onerror?.();
-          return Promise.reject(new Error("target audio unavailable"));
+        constructor() {
+          window.__audioAttempts = (window.__audioAttempts ?? 0) + 1;
         }
 
         pause() {
@@ -256,5 +257,6 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
 
     const expectedVoice = voiceStyle === "Female" ? "Kyoko Female" : "Otoya Male";
     await expect.poll(() => page.evaluate(() => window.__spokenVoices?.slice(1, 3))).toEqual([expectedVoice, expectedVoice]);
+    expect(await page.evaluate(() => window.__audioAttempts)).toBe(0);
   });
 }
