@@ -1171,18 +1171,6 @@ function App() {
       {step === "setup" && (
         <section className="screen stack">
           <Notice t={t} />
-          <SyncPanel
-            t={t}
-            syncCode={syncCode}
-            syncCodeInput={syncCodeInput}
-            syncStatus={syncStatus}
-            isSyncing={isSyncing}
-            onCodeInput={setSyncCodeInput}
-            onCreate={createTempAccount}
-            onConnect={connectTempAccount}
-            onCopy={copySyncCode}
-            onSave={() => saveSyncData(syncCode, true)}
-          />
           <ControlGroup title={t("Target language")}>
             <Segmented
               options={targetLanguages}
@@ -1364,6 +1352,18 @@ function App() {
               onChange={(value) => updateConfig("backgroundVolume", value)}
             />
           </ControlGroup>
+          <SyncPanel
+            t={t}
+            syncCode={syncCode}
+            syncCodeInput={syncCodeInput}
+            syncStatus={syncStatus}
+            isSyncing={isSyncing}
+            onCodeInput={setSyncCodeInput}
+            onCreate={createTempAccount}
+            onConnect={connectTempAccount}
+            onCopy={copySyncCode}
+            onSave={() => saveSyncData(syncCode, true)}
+          />
           <div className="sticky-actions">
             <button className="primary-button" onClick={startSession}>
               {config.playbackOrder === "Random" ? <Shuffle size={20} /> : <Play size={20} />}
