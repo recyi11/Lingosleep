@@ -142,6 +142,7 @@ const sessionConfig = {
   backgroundSound: "white noise",
   voiceVolume: 0.72,
   nativeVoiceVolume: 0.95,
+  targetVoiceStyle: "Female",
   nativeVoiceStyle: "Female",
   backgroundVolume: 0.34,
 };

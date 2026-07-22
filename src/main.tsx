@@ -69,6 +69,7 @@ type SessionConfig = {
   nativeVoiceVolume: number;
   targetVoiceRate: number;
   nativeVoiceRate: number;
+  targetVoiceStyle: VoiceStyle;
   nativeVoiceStyle: VoiceStyle;
   targetDelaySeconds: number;
   pauseSeconds: number;
@@ -88,8 +89,23 @@ const softRainBoost = 1.3;
 const playlistBucketSize = 70;
 const remoteVocabularyPageSize = 1000;
 const voiceStyles: VoiceStyle[] = ["Female", "Male"];
-const femaleVoiceHints = ["samantha", "victoria", "karen", "moira", "tessa", "fiona", "zira", "aria", "jenny", "susan"];
-const maleVoiceHints = ["alex", "daniel", "fred", "tom", "david", "mark", "guy", "george", "ryan"];
+const femaleVoiceHints = [
+  "samantha",
+  "victoria",
+  "karen",
+  "moira",
+  "tessa",
+  "fiona",
+  "zira",
+  "aria",
+  "jenny",
+  "susan",
+  "kyoko",
+  "nanami",
+  "yuna",
+  "sunhi",
+];
+const maleVoiceHints = ["alex", "daniel", "fred", "tom", "david", "mark", "guy", "george", "ryan", "otoya", "keita", "jinho", "injoon"];
 const allTopics: ReviewTopic = "all topics";
 const levels: Level[] = ["Basic", "Intermediate", "Advanced"];
 const topics: Topic[] = [
@@ -132,7 +148,8 @@ const simplifiedChineseLabels: Record<string, string> = {
   "Native language": "母语",
   "Target speed": "目标语语速",
   "Native speed": "母语语速",
-  "Voice style": "声线",
+  "Target voice style": "目标语声线",
+  "Native voice style": "母语声线",
   Female: "女声",
   Male: "男声",
   Level: "等级",
@@ -233,6 +250,7 @@ const defaultConfig: SessionConfig = {
   nativeVoiceVolume: 0.95,
   targetVoiceRate: 1,
   nativeVoiceRate: 1,
+  targetVoiceStyle: "Female",
   nativeVoiceStyle: "Female",
   targetDelaySeconds: 0.3,
   pauseSeconds: 1.6,
@@ -281,7 +299,11 @@ function normalizeConfig(config: SessionConfig): SessionConfig {
     typeof (config as SessionConfig & { targetDelaySeconds?: unknown }).targetDelaySeconds === "number"
       ? (config as SessionConfig & { targetDelaySeconds: number }).targetDelaySeconds
       : defaultConfig.targetDelaySeconds;
+  const storedTargetVoiceStyle = (config as SessionConfig & { targetVoiceStyle?: unknown }).targetVoiceStyle;
   const storedNativeVoiceStyle = (config as SessionConfig & { nativeVoiceStyle?: unknown }).nativeVoiceStyle;
+  const nativeVoiceStyle = voiceStyles.includes(storedNativeVoiceStyle as VoiceStyle)
+    ? (storedNativeVoiceStyle as VoiceStyle)
+    : defaultConfig.nativeVoiceStyle;
 
   return {
     ...config,
@@ -293,9 +315,8 @@ function normalizeConfig(config: SessionConfig): SessionConfig {
     nativeVoiceVolume,
     targetVoiceRate,
     nativeVoiceRate,
-    nativeVoiceStyle: voiceStyles.includes(storedNativeVoiceStyle as VoiceStyle)
-      ? (storedNativeVoiceStyle as VoiceStyle)
-      : defaultConfig.nativeVoiceStyle,
+    targetVoiceStyle: voiceStyles.includes(storedTargetVoiceStyle as VoiceStyle) ? (storedTargetVoiceStyle as VoiceStyle) : nativeVoiceStyle,
+    nativeVoiceStyle,
     targetDelaySeconds,
     pauseSeconds,
     nativeLanguage: nativeLanguages.includes(config.nativeLanguage) ? config.nativeLanguage : "Simplified Chinese",
@@ -666,7 +687,7 @@ function App() {
   const speakIfPlaying = async (text: string, lang: TargetLanguage | NativeLanguage, volume: number, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return false;
     const rate = lang === configRef.current.targetLanguage ? configRef.current.targetVoiceRate : configRef.current.nativeVoiceRate;
-    const voiceStyle = configRef.current.nativeVoiceStyle;
+    const voiceStyle = lang === configRef.current.targetLanguage ? configRef.current.targetVoiceStyle : configRef.current.nativeVoiceStyle;
     await speak(text, lang, volume, rate, voiceStyle);
     return isSessionActive(sessionToken);
   };
@@ -857,6 +878,13 @@ function App() {
               valueText={`${config.targetVoiceRate.toFixed(1)}x`}
               onChange={(value) => updateConfig("targetVoiceRate", value)}
             />
+            <span className="segmented-label">{t("Target voice style")}</span>
+            <Segmented
+              options={voiceStyles}
+              value={config.targetVoiceStyle}
+              labelFor={label}
+              onChange={(value) => updateConfig("targetVoiceStyle", value as VoiceStyle)}
+            />
           </ControlGroup>
           <ControlGroup title={t("Native language")}>
             <Segmented
@@ -875,7 +903,7 @@ function App() {
               valueText={`${config.nativeVoiceRate.toFixed(1)}x`}
               onChange={(value) => updateConfig("nativeVoiceRate", value)}
             />
-            <span className="segmented-label">{t("Voice style")}</span>
+            <span className="segmented-label">{t("Native voice style")}</span>
             <Segmented
               options={voiceStyles}
               value={config.nativeVoiceStyle}

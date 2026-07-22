@@ -163,6 +163,7 @@ for (const testCase of cases) {
 for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
   test(`target-language repeats use the selected ${voiceStyle.toLowerCase()} voice`, async ({ page }) => {
     await page.addInitScript(({ voiceStyle }) => {
+      const nativeVoiceStyle = voiceStyle === "Female" ? "Male" : "Female";
       window.localStorage.setItem("lingosleep-onboarded", "true");
       window.localStorage.setItem(
         "lingosleep-config",
@@ -178,7 +179,8 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
           playbackOrder: "Start from beginning",
           voiceVolume: 0.72,
           nativeVoiceVolume: 0.95,
-          nativeVoiceStyle: voiceStyle,
+          targetVoiceStyle: voiceStyle,
+          nativeVoiceStyle,
           targetVoiceRate: 1,
           nativeVoiceRate: 1,
           targetDelaySeconds: 0,
