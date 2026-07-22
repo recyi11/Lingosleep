@@ -295,6 +295,7 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
         { lang: "en-US", name: "Aria Female" },
         { lang: "en-US", name: "Michelle Female" },
         { lang: "en-US", name: "Samantha Female" },
+        { lang: "en-US", name: "Brian Male" },
         { lang: "en-US", name: "Guy Male" },
         { lang: "en-US", name: "Daniel Male" },
       ];

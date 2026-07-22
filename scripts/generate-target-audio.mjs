@@ -37,7 +37,9 @@ const includeNativeEnglish = process.argv.includes("--native-english");
 const includeNativeChinese = process.argv.includes("--native-chinese");
 const includeTargets = (!includeNativeEnglish && !includeNativeChinese) || process.argv.includes("--target");
 const voiceStyle = process.argv.includes("--male") ? "Male" : "Female";
+const concurrency = Number(process.env.AUDIO_CONCURRENCY || 3);
 const pythonCommand = process.env.PYTHON || "py";
+const ttsJobs = [];
 
 const loadEnv = async () => {
   try {
@@ -135,8 +137,11 @@ for (const item of vocab) {
     for (const job of jobs) {
       const file = path.join(audioDir, `${item.id}-${job.kind}.mp3`);
       if (await exists(file)) continue;
-      console.log(`target/${voiceStyle === "Male" ? "male/" : ""}${item.id}-${job.kind}: ${job.text}`);
-      await run(["--voice", voice, "--text", job.text, "--write-media", file]);
+      ttsJobs.push({
+        label: `target/${voiceStyle === "Male" ? "male/" : ""}${item.id}-${job.kind}`,
+        args: ["--voice", voice, "--text", job.text, "--write-media", file],
+        text: job.text,
+      });
     }
   }
 
@@ -149,8 +154,11 @@ for (const item of vocab) {
     for (const job of jobs) {
       const file = path.join(audioDir, `${item.id}-${job.kind}.mp3`);
       if (await exists(file)) continue;
-      console.log(`native/en/${voiceStyle === "Male" ? "male/" : ""}${item.id}-${job.kind}: ${job.text}`);
-      await run(["--voice", voices.English[voiceStyle], "--text", job.text, "--write-media", file]);
+      ttsJobs.push({
+        label: `native/en/${voiceStyle === "Male" ? "male/" : ""}${item.id}-${job.kind}`,
+        args: ["--voice", voices.English[voiceStyle], "--text", job.text, "--write-media", file],
+        text: job.text,
+      });
     }
   }
 
@@ -163,8 +171,23 @@ for (const item of vocab) {
     for (const job of jobs) {
       const file = path.join(audioDir, `${item.id}-${job.kind}.mp3`);
       if (await exists(file)) continue;
-      console.log(`native/zh-cn/${voiceStyle === "Male" ? "male/" : ""}${item.id}-${job.kind}: ${job.text}`);
-      await run(["--voice", voices["Simplified Chinese"][voiceStyle], "--text", job.text, "--write-media", file]);
+      ttsJobs.push({
+        label: `native/zh-cn/${voiceStyle === "Male" ? "male/" : ""}${item.id}-${job.kind}`,
+        args: ["--voice", voices["Simplified Chinese"][voiceStyle], "--text", job.text, "--write-media", file],
+        text: job.text,
+      });
     }
   }
 }
+
+let nextJob = 0;
+const workerCount = Math.max(1, Math.min(concurrency, ttsJobs.length));
+await Promise.all(
+  Array.from({ length: workerCount }, async () => {
+    while (nextJob < ttsJobs.length) {
+      const job = ttsJobs[nextJob++];
+      console.log(`${job.label}: ${job.text}`);
+      await run(job.args);
+    }
+  })
+);
