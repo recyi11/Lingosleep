@@ -602,7 +602,7 @@ function App() {
     void fetchRemoteVocabulary()
       .then((remoteVocab) => {
         if (remoteVocab.length) {
-          setVocab((current) => mergeVocabMetadata(remoteVocab, current));
+          setVocab((current) => mergeVocabMetadata(takeUnique([...remoteVocab, ...vocabSeed], Number.MAX_SAFE_INTEGER), current));
         }
       })
       .catch((error) => {
