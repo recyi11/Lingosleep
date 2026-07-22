@@ -6,6 +6,7 @@ declare global {
     __spoken: string[];
     __spokenVoices?: Array<string | null>;
     __audioAttempts?: number;
+    __audioUrls?: string[];
   }
 }
 
@@ -160,7 +161,7 @@ for (const testCase of cases) {
   });
 }
 
-test("bundled vocabulary wins over stale remote duplicate fields", async ({ page }) => {
+test("remote vocabulary wins over bundled duplicate fields", async ({ page }) => {
   await page.route("**/rest/v1/vocabulary**", (route) =>
     route.fulfill({
       status: 200,
@@ -178,7 +179,7 @@ test("bundled vocabulary wins over stale remote duplicate fields", async ({ page
           reading: "ごはん",
           romanization: "gohan",
           meaning_en: "meal",
-          meaning_zh_cn: "米饭；餐",
+          meaning_zh_cn: "REMOTE-ZH",
           example_text: "朝ご飯を食べます。",
           example_translation_en: "I eat breakfast.",
           example_translation_zh_cn: "我吃早饭。",
@@ -220,7 +221,7 @@ test("bundled vocabulary wins over stale remote duplicate fields", async ({ page
         ];
       })
     )
-    .toBe("饭");
+    .toBe("REMOTE-ZH");
 });
 
 for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
@@ -235,7 +236,7 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
           nativeLanguage: "English",
           level: "Basic",
           topic: "food",
-          mode: "Native word -> target word -> target word",
+          mode: "Normal mode",
           languageMinutes: 10,
           backgroundMinutes: 10,
           backgroundSound: "none",
@@ -254,6 +255,7 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
       window.__spoken = [];
       window.__spokenVoices = [];
       window.__audioAttempts = 0;
+      window.__audioUrls = [];
 
       class FakeAudio {
         onended: (() => void) | null = null;
@@ -262,8 +264,9 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
         volume = 1;
         playbackRate = 1;
 
-        constructor() {
+        constructor(url: string) {
           window.__audioAttempts = (window.__audioAttempts ?? 0) + 1;
+          window.__audioUrls?.push(url);
         }
 
         pause() {
@@ -289,7 +292,10 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
       const voices = [
         { lang: "ja-JP", name: "Kyoko Female" },
         { lang: "ja-JP", name: "Otoya Male" },
+        { lang: "en-US", name: "Aria Female" },
+        { lang: "en-US", name: "Michelle Female" },
         { lang: "en-US", name: "Samantha Female" },
+        { lang: "en-US", name: "Guy Male" },
         { lang: "en-US", name: "Daniel Male" },
       ];
 
@@ -321,7 +327,110 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
     await expect.poll(() => page.evaluate(() => window.__spoken.slice(0, 3))).toEqual(["meal", "ごはん", "ごはん"]);
 
     const expectedVoice = voiceStyle === "Female" ? "Kyoko Female" : "Otoya Male";
+    const expectedNativeVoice = voiceStyle === "Female" ? "Guy Male" : "Michelle Female";
+    await expect.poll(() => page.evaluate(() => window.__spokenVoices?.[0])).toBe(expectedNativeVoice);
     await expect.poll(() => page.evaluate(() => window.__spokenVoices?.slice(1, 3))).toEqual([expectedVoice, expectedVoice]);
-    expect(await page.evaluate(() => window.__audioAttempts)).toBe(0);
+    expect(await page.evaluate(() => window.__audioAttempts)).toBeGreaterThan(0);
+    if (voiceStyle === "Male") {
+      expect(await page.evaluate(() => window.__audioUrls?.some((url) => url.includes("/audio/target/male/ja-food-basic-1-word.mp3")))).toBe(true);
+    }
+  });
+}
+
+for (const nativeVoiceStyle of ["Female", "Male"] as VoiceStyle[]) {
+  test(`simplified chinese native voice prefers the selected ${nativeVoiceStyle.toLowerCase()} voice`, async ({ page }) => {
+    await page.addInitScript(({ nativeVoiceStyle }) => {
+      window.localStorage.setItem("lingosleep-onboarded", "true");
+      window.localStorage.setItem(
+        "lingosleep-config",
+        JSON.stringify({
+          targetLanguage: "Japanese",
+          nativeLanguage: "Simplified Chinese",
+          level: "Basic",
+          topic: "food",
+          mode: "Normal mode",
+          languageMinutes: 10,
+          backgroundMinutes: 10,
+          backgroundSound: "none",
+          playbackOrder: "Start from beginning",
+          voiceVolume: 0.72,
+          nativeVoiceVolume: 0.95,
+          targetVoiceStyle: "Female",
+          nativeVoiceStyle,
+          targetVoiceRate: 1,
+          nativeVoiceRate: 1,
+          targetDelaySeconds: 0,
+          backgroundVolume: 0,
+        })
+      );
+
+      window.__spoken = [];
+      window.__spokenVoices = [];
+
+      class FakeAudio {
+        onended: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        onpause: (() => void) | null = null;
+        volume = 1;
+        playbackRate = 1;
+
+        play() {
+          this.onerror?.();
+          return Promise.reject(new Error("audio unavailable"));
+        }
+
+        pause() {
+          this.onpause?.();
+        }
+      }
+
+      class FakeSpeechSynthesisUtterance {
+        text: string;
+        lang = "";
+        voice: { lang: string; name: string } | null = null;
+        rate = 1;
+        pitch = 1;
+        volume = 1;
+        onend: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        constructor(text: string) {
+          this.text = text;
+        }
+      }
+
+      const voices = [
+        { lang: "zh-CN", name: "Microsoft Xiaoxiao Female" },
+        { lang: "zh-CN", name: "Microsoft Yunjian Male" },
+        { lang: "ja-JP", name: "Kyoko Female" },
+      ];
+
+      Object.defineProperty(window, "Audio", {
+        configurable: true,
+        value: FakeAudio,
+      });
+      Object.defineProperty(window, "SpeechSynthesisUtterance", {
+        configurable: true,
+        value: FakeSpeechSynthesisUtterance,
+      });
+      Object.defineProperty(window, "speechSynthesis", {
+        configurable: true,
+        value: {
+          cancel: () => undefined,
+          getVoices: () => voices,
+          speak: (utterance: FakeSpeechSynthesisUtterance) => {
+            window.__spoken.push(utterance.text);
+            window.__spokenVoices?.push(utterance.voice?.name ?? null);
+            window.setTimeout(() => utterance.onend?.(), 0);
+          },
+        },
+      });
+    }, { nativeVoiceStyle });
+
+    await page.goto("/");
+    await startSession(page);
+
+    const expectedNativeVoice = nativeVoiceStyle === "Female" ? "Microsoft Xiaoxiao Female" : "Microsoft Yunjian Male";
+    await expect.poll(() => page.evaluate(() => window.__spokenVoices?.[0])).toBe(expectedNativeVoice);
   });
 }

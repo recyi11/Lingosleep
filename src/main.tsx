@@ -31,7 +31,7 @@ import {
 import "./styles.css";
 
 type PlaybackMode =
-  | "Native word -> target word -> target word"
+  | "Normal mode"
   | "Recall mode"
   | "Word and example sentence"
   | "Target-language-only immersion";
@@ -39,10 +39,11 @@ type BackgroundSound = "soft rain" | "heavy rain" | "Rain and Thunder" | "white 
 type PlaybackOrder = "Start from beginning" | "Start from last left" | "Random";
 type ReviewTopic = Topic | "all topics";
 type VoiceStyle = "Auto" | "Female" | "Male";
+type SpeechRole = "target" | "native";
 type PersistedVocabMetadata = Pick<VocabItem, "status" | "favorite" | "timesPlayed" | "lastPlayed">;
 type VocabularyRow = {
   id: string;
-  target_language: "ja" | "ko";
+  target_language: "ja" | "ko" | "en";
   level: "basic" | "intermediate" | "advanced";
   topic: string;
   target_text: string;
@@ -84,6 +85,7 @@ type SessionRecord = {
 };
 
 const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese"];
+const targetLanguages: TargetLanguage[] = ["Japanese", "Korean", "English"];
 const japaneseVoiceBoost = 1.3;
 const koreanVoiceBoost = 1.3;
 const softRainBoost = 1.3;
@@ -106,6 +108,25 @@ const femaleVoiceHints = [
   "yuna",
   "sunhi",
 ];
+const preferredEnglishFemaleVoiceHints = ["michelle", "aria", "jenny", "samantha", "zira", "susan", "victoria"];
+const preferredVoiceHints: Partial<Record<string, Partial<Record<VoiceStyle, string[]>>>> = {
+  "en-US": {
+    Female: preferredEnglishFemaleVoiceHints,
+    Male: ["brian", "guy", "andrew", "daniel", "mark"],
+  },
+  "zh-CN": {
+    Female: ["xiaoxiao", "xiaoyi", "xiaohan", "huihui", "yaoyao"],
+    Male: ["yunjian", "yunxi", "yunyang", "yunfeng", "kangkang"],
+  },
+  "ja-JP": {
+    Female: ["nanami", "kyoko", "haruka"],
+    Male: ["keita", "daichi", "otoya"],
+  },
+  "ko-KR": {
+    Female: ["sunhi", "yuna"],
+    Male: ["injoon", "jinho", "bongjin"],
+  },
+};
 const maleVoiceHints = ["alex", "daniel", "fred", "tom", "david", "mark", "guy", "george", "ryan", "otoya", "keita", "jinho", "injoon"];
 const allTopics: ReviewTopic = "all topics";
 const levels: Level[] = ["Basic", "Intermediate", "Advanced"];
@@ -122,7 +143,7 @@ const topics: Topic[] = [
   "TOPIK",
 ];
 const modes: PlaybackMode[] = [
-  "Native word -> target word -> target word",
+  "Normal mode",
   "Recall mode",
   "Word and example sentence",
   "Target-language-only immersion",
@@ -138,7 +159,7 @@ const rainSoundUrls: Partial<Record<BackgroundSound, string>> = {
 const simplifiedChineseLabels: Record<string, string> = {
   "Night vocabulary review": "词汇复习",
   "Relaxed vocabulary review for quiet nights.": "适合安静时段的轻松词汇复习。",
-  "Review Japanese or Korean words with validated course data, gentle pacing, translations, examples, and calming sound beds. It supports review while resting, without promising sleep-only fluency.":
+  "Review Japanese, Korean, or English words with validated course data, gentle pacing, translations, examples, and calming sound beds. It supports review while resting, without promising sleep-only fluency.":
     "用经过整理的课程词汇复习日语或韩语，包含舒缓节奏、翻译、例句和背景声音。它适合休息时复习，但不承诺只靠睡眠就能流利掌握。",
   "Gentle review for rest time. Fluency still needs active study, speaking, reading, and recall practice.":
     "适合休息时的轻松复习。真正流利仍然需要主动学习、开口、阅读和回忆练习。",
@@ -198,10 +219,10 @@ const simplifiedChineseLabels: Record<string, string> = {
   Reveal: "显示答案",
   "I remembered": "我记住了",
   Done: "完成",
-  Japanese: "日语",
-  Korean: "韩语",
+  Japanese: "日本語",
+  Korean: "한국어",
   English: "英语",
-  "Simplified Chinese": "简体中文",
+  "Simplified Chinese": "中文",
   Basic: "基础",
   Intermediate: "中级",
   Advanced: "高级",
@@ -217,7 +238,7 @@ const simplifiedChineseLabels: Record<string, string> = {
   work: "工作",
   school: "学校",
   "anime/drama": "动漫/剧集",
-  "Native word -> target word -> target word": "母语 -> 目标语 -> 目标语",
+  "Normal mode": "正常模式",
   "Recall mode": "回忆模式",
   "Word and example sentence": "单词和例句",
   "Target-language-only immersion": "仅目标语沉浸",
@@ -235,6 +256,19 @@ const simplifiedChineseLabels: Record<string, string> = {
 
 function translate(text: string, nativeLanguage: NativeLanguage) {
   return nativeLanguage === "Simplified Chinese" ? simplifiedChineseLabels[text] || text : text;
+}
+
+const languageDisplayNames: Record<TargetLanguage | NativeLanguage, string> = {
+  Japanese: "日本語",
+  Korean: "한국어",
+  English: "English",
+  "Simplified Chinese": "中文",
+};
+
+function displayLabel(text: string, uiLanguage: NativeLanguage) {
+  if (text in languageDisplayNames) return languageDisplayNames[text as TargetLanguage | NativeLanguage];
+  if (text === "Chinese") return "中文";
+  return translate(text, uiLanguage);
 }
 
 const defaultConfig: SessionConfig = {
@@ -356,7 +390,8 @@ function mergeVocabMetadata(items: VocabItem[], stored: unknown[]) {
 }
 
 function mapVocabularyRow(row: VocabularyRow): VocabItem | null {
-  const targetLanguage = row.target_language === "ja" ? "Japanese" : row.target_language === "ko" ? "Korean" : null;
+  const targetLanguage =
+    row.target_language === "ja" ? "Japanese" : row.target_language === "ko" ? "Korean" : row.target_language === "en" ? "English" : null;
   const level = row.level === "basic" ? "Basic" : row.level === "intermediate" ? "Intermediate" : row.level === "advanced" ? "Advanced" : null;
   if (!targetLanguage || !level || !topics.includes(row.topic as Topic)) return null;
 
@@ -400,6 +435,17 @@ function voiceMatchesStyle(voice: SpeechSynthesisVoice, style: VoiceStyle) {
   return genericMatch || hints.some((hint) => name.includes(hint));
 }
 
+function findVoiceByHints(voices: SpeechSynthesisVoice[], hints: string[]) {
+  return hints.map((hint) => voices.find((voice) => voice.name.toLowerCase().includes(hint))).find(Boolean);
+}
+
+function pickStyledVoice(languageVoices: SpeechSynthesisVoice[], speechLang: string, voiceStyle: VoiceStyle) {
+  if (voiceStyle === "Auto") return undefined;
+  const preferredHints = preferredVoiceHints[speechLang]?.[voiceStyle];
+  if (preferredHints) return findVoiceByHints(languageVoices, preferredHints) || languageVoices.find((voice) => voiceMatchesStyle(voice, voiceStyle));
+  return languageVoices.find((voice) => voiceMatchesStyle(voice, voiceStyle));
+}
+
 function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: number, rateMultiplier: number, voiceStyle: VoiceStyle = "Auto") {
   return new Promise<void>((resolve) => {
     if (!("speechSynthesis" in window)) {
@@ -432,7 +478,7 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
         (voice) => voice.lang === speechLang || voice.lang.toLowerCase().startsWith(speechLang.slice(0, 2).toLowerCase())
       );
       utterance.voice =
-        (voiceStyle !== "Auto" ? languageVoices.find((voice) => voiceMatchesStyle(voice, voiceStyle)) : undefined) ||
+        pickStyledVoice(languageVoices, speechLang, voiceStyle) ||
         languageVoices.find((voice) => voice.lang === speechLang) ||
         languageVoices[0] ||
         null;
@@ -454,6 +500,32 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
 }
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+function supabaseAudioUrl(storagePath: string) {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  if (!url || url === "https://example.supabase.co") return undefined;
+  return `${url.replace(/\/$/, "")}/storage/v1/object/public/audio/${storagePath}`;
+}
+
+function audioSources(storagePath: string) {
+  return [`/audio/${storagePath}`, supabaseAudioUrl(storagePath)].filter(Boolean) as string[];
+}
+
+function styledTargetAudioSources(itemId: string, kind: "word" | "example", style: VoiceStyle) {
+  const fileName = `${itemId}-${kind}.mp3`;
+  if (style === "Male") return audioSources(`target/male/${fileName}`);
+  if (style === "Female") return [...audioSources(`target/${fileName}`), ...audioSources(`target/female/${fileName}`)];
+  return audioSources(`target/${fileName}`);
+}
+
+function nativeAudioSources(itemId: string, kind: "meaning" | "example", language: NativeLanguage, style: VoiceStyle) {
+  const languagePath = language === "English" ? "en" : language === "Simplified Chinese" ? "zh-cn" : null;
+  if (!languagePath) return [];
+  const fileName = `${itemId}-${kind}.mp3`;
+  if (style === "Male") return audioSources(`native/${languagePath}/male/${fileName}`);
+  if (style === "Female") return [...audioSources(`native/${languagePath}/${fileName}`), ...audioSources(`native/${languagePath}/female/${fileName}`)];
+  return audioSources(`native/${languagePath}/${fileName}`);
+}
 
 function createNoiseSource(ctx: AudioContext, sound: Exclude<BackgroundSound, "soft rain" | "heavy rain" | "Rain and Thunder" | "none">) {
   const bufferSize = ctx.sampleRate * 2;
@@ -567,7 +639,7 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
 function App() {
   const [config, setConfig] = useState<SessionConfig>(() => normalizeConfig(loadJson("lingosleep-config", defaultConfig)));
   const t = (text: string) => translate(text, config.nativeLanguage);
-  const label = (text: string) => translate(text, config.nativeLanguage);
+  const label = (text: string) => displayLabel(text, config.nativeLanguage);
   const configRef = useRef(config);
   const [vocab, setVocab] = useState<VocabItem[]>(() => {
     const stored = loadJson<unknown>("lingosleep-vocab", null);
@@ -587,6 +659,7 @@ function App() {
   const sessionTokenRef = useRef(0);
   const playedIdsRef = useRef<string[]>([]);
   const background = useBackgroundSound(config.backgroundSound, config.backgroundVolume);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const availableTopics = useMemo(
     () => [
       allTopics,
@@ -619,7 +692,7 @@ function App() {
     void fetchRemoteVocabulary()
       .then((remoteVocab) => {
         if (remoteVocab.length) {
-          setVocab((current) => mergeVocabMetadata(takeUnique([...vocabSeed, ...remoteVocab], Number.MAX_SAFE_INTEGER), current));
+          setVocab((current) => mergeVocabMetadata(takeUnique([...remoteVocab, ...vocabSeed], Number.MAX_SAFE_INTEGER), current));
         }
       })
       .catch((error) => {
@@ -685,10 +758,52 @@ function App() {
 
   const isSessionActive = (sessionToken: number) => playingRef.current && sessionTokenRef.current === sessionToken;
 
-  const speakIfPlaying = async (text: string, lang: TargetLanguage | NativeLanguage, volume: number, sessionToken: number) => {
+  const playAudioIfPlaying = async (url: string, volume: number, rate: number, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return false;
-    const rate = lang === configRef.current.targetLanguage ? configRef.current.targetVoiceRate : configRef.current.nativeVoiceRate;
-    const voiceStyle = lang === configRef.current.targetLanguage ? configRef.current.targetVoiceStyle : configRef.current.nativeVoiceStyle;
+    const audio = new Audio(url);
+    currentAudioRef.current = audio;
+    audio.volume = volume;
+    audio.playbackRate = rate;
+    let settled = false;
+
+    return new Promise<boolean>((resolve) => {
+      const finish = (played: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (currentAudioRef.current === audio) currentAudioRef.current = null;
+        resolve(played && isSessionActive(sessionToken));
+      };
+
+      audio.onended = () => finish(true);
+      audio.onerror = () => finish(false);
+      audio.onpause = () => {
+        if (!isSessionActive(sessionToken)) finish(false);
+      };
+      const playPromise = audio.play?.();
+      if (!playPromise) {
+        finish(false);
+      } else {
+        playPromise.catch(() => finish(false));
+      }
+    });
+  };
+
+  const speakIfPlaying = async (
+    role: SpeechRole,
+    text: string,
+    lang: TargetLanguage | NativeLanguage,
+    volume: number,
+    sessionToken: number,
+    audioPaths: string[] = []
+  ) => {
+    if (!isSessionActive(sessionToken)) return false;
+    const rate = role === "target" ? configRef.current.targetVoiceRate : configRef.current.nativeVoiceRate;
+    const voiceStyle = role === "target" ? configRef.current.targetVoiceStyle : configRef.current.nativeVoiceStyle;
+    for (const audioPath of audioPaths) {
+      if (await playAudioIfPlaying(audioPath, volume, rate, sessionToken)) {
+        return true;
+      }
+    }
     await speak(text, lang, volume, rate, voiceStyle);
     return isSessionActive(sessionToken);
   };
@@ -703,37 +818,41 @@ function App() {
     if (!isSessionActive(sessionToken)) return;
     const sessionConfig = config;
     const targetSpeechText = sessionConfig.targetLanguage === "Japanese" ? item.reading : item.targetText;
+    const targetWordAudioPaths = styledTargetAudioSources(item.id, "word", sessionConfig.targetVoiceStyle);
+    const targetExampleAudioPaths = styledTargetAudioSources(item.id, "example", sessionConfig.targetVoiceStyle);
+    const nativeMeaningAudioPaths = nativeAudioSources(item.id, "meaning", sessionConfig.nativeLanguage, sessionConfig.nativeVoiceStyle);
+    const nativeExampleAudioPaths = nativeAudioSources(item.id, "example", sessionConfig.nativeLanguage, sessionConfig.nativeVoiceStyle);
     const baseVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
     const targetBoost = sessionConfig.targetLanguage === "Japanese" ? japaneseVoiceBoost : sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
     const voiceVolume = (multiplier = 1) => Math.min(1, baseVolume(multiplier) * targetBoost);
     const nativeVolume = (multiplier = 1) => Math.min(1, configRef.current.nativeVoiceVolume * multiplier);
     setCurrentItem(item);
     background.duck(true);
-    if (sessionConfig.mode === "Native word -> target word -> target word") {
-      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken))) return;
+    if (sessionConfig.mode === "Normal mode") {
+      if (!(await speakIfPlaying("native", item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken, nativeMeaningAudioPaths))) return;
       if (!(await waitIfPlaying(configRef.current.targetDelaySeconds * 1000, sessionToken))) return;
-      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying("target", targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken, targetWordAudioPaths))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(0.92), sessionToken))) return;
+      if (!(await speakIfPlaying("target", targetSpeechText, sessionConfig.targetLanguage, voiceVolume(0.92), sessionToken, targetWordAudioPaths))) return;
     } else if (sessionConfig.mode === "Recall mode") {
-      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying("native", item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken, nativeMeaningAudioPaths))) return;
       if (!(await waitIfPlaying(configRef.current.targetDelaySeconds * 1000, sessionToken))) return;
       background.duck(true);
-      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying("target", targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken, targetWordAudioPaths))) return;
       if (!(await waitIfPlaying(500, sessionToken))) return;
-      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(0.82), sessionToken))) return;
+      if (!(await speakIfPlaying("target", targetSpeechText, sessionConfig.targetLanguage, voiceVolume(0.82), sessionToken, targetWordAudioPaths))) return;
     } else if (sessionConfig.mode === "Word and example sentence") {
-      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying("target", targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken, targetWordAudioPaths))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(0.88), sessionToken))) return;
+      if (!(await speakIfPlaying("native", item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(0.88), sessionToken, nativeMeaningAudioPaths))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.84), sessionToken))) return;
+      if (!(await speakIfPlaying("target", item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.84), sessionToken, targetExampleAudioPaths))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleTranslations[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(0.74), sessionToken))) return;
+      if (!(await speakIfPlaying("native", item.exampleTranslations[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(0.74), sessionToken, nativeExampleAudioPaths))) return;
     } else {
-      if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
+      if (!(await speakIfPlaying("target", targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken, targetWordAudioPaths))) return;
       if (!(await waitIfPlaying(900, sessionToken))) return;
-      if (!(await speakIfPlaying(item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.78), sessionToken))) return;
+      if (!(await speakIfPlaying("target", item.exampleSentence, sessionConfig.targetLanguage, voiceVolume(0.78), sessionToken, targetExampleAudioPaths))) return;
     }
     if (!isSessionActive(sessionToken)) return;
     background.duck(false);
@@ -781,6 +900,8 @@ function App() {
     playingRef.current = false;
     sessionTokenRef.current += 1;
     window.speechSynthesis?.cancel();
+    currentAudioRef.current?.pause();
+    currentAudioRef.current = null;
     background.stop();
     setIsPlaying(false);
     const savedPlayedIds = Array.from(new Set(playedIdsRef.current));
@@ -800,7 +921,7 @@ function App() {
   const fadeLanguage = async (sessionToken: number) => {
     for (let i = 0; i < 4; i += 1) {
       const fadeVolume = Math.max(0.05, configRef.current.voiceVolume * (0.25 - i * 0.05));
-      if (!(await speakIfPlaying("Good night.", "English", fadeVolume, sessionToken))) return;
+      if (!(await speakIfPlaying("native", "Good night.", "English", fadeVolume, sessionToken))) return;
       if (!(await waitIfPlaying(700, sessionToken))) return;
     }
   };
@@ -843,7 +964,7 @@ function App() {
           <h1>{t("Relaxed vocabulary review for quiet nights.")}</h1>
           <p>
             {t(
-              "Review Japanese or Korean words with validated course data, gentle pacing, translations, examples, and calming sound beds. It supports review while resting, without promising sleep-only fluency."
+              "Review Japanese, Korean, or English words with validated course data, gentle pacing, translations, examples, and calming sound beds. It supports review while resting, without promising sleep-only fluency."
             )}
           </p>
           <button
@@ -864,7 +985,7 @@ function App() {
           <Notice t={t} />
           <ControlGroup title={t("Target language")}>
             <Segmented
-              options={["Japanese", "Korean"]}
+              options={targetLanguages}
               value={config.targetLanguage}
               labelFor={label}
               onChange={(value) => updateConfig("targetLanguage", value as TargetLanguage)}

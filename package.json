@@ -10,6 +10,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "generate:audio": "node scripts/generate-target-audio.mjs",
+    "upload:audio": "node scripts/upload-audio-to-supabase.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "e2e": "playwright test"
   },

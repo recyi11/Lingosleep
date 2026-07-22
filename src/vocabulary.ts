@@ -1,4 +1,4 @@
-export type TargetLanguage = "Japanese" | "Korean";
+export type TargetLanguage = "Japanese" | "Korean" | "English";
 export type NativeLanguage = "English" | "Simplified Chinese";
 export type Level = "Basic" | "Intermediate" | "Advanced";
 export type Topic =
