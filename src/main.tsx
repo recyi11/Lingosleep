@@ -132,7 +132,7 @@ const simplifiedChineseLabels: Record<string, string> = {
   "Native language": "母语",
   "Target speed": "目标语语速",
   "Native speed": "母语语速",
-  "Native voice style": "母语声线",
+  "Voice style": "声线",
   Female: "女声",
   Male: "男声",
   Level: "等级",
@@ -724,7 +724,7 @@ function App() {
       if (playedAudio) return true;
     }
     const rate = lang === configRef.current.targetLanguage ? configRef.current.targetVoiceRate : configRef.current.nativeVoiceRate;
-    const voiceStyle = lang === configRef.current.targetLanguage ? "Auto" : configRef.current.nativeVoiceStyle;
+    const voiceStyle = configRef.current.nativeVoiceStyle;
     await speak(text, lang, volume, rate, voiceStyle);
     return isSessionActive(sessionToken);
   };
@@ -934,7 +934,7 @@ function App() {
               valueText={`${config.nativeVoiceRate.toFixed(1)}x`}
               onChange={(value) => updateConfig("nativeVoiceRate", value)}
             />
-            <span className="segmented-label">{t("Native voice style")}</span>
+            <span className="segmented-label">{t("Voice style")}</span>
             <Segmented
               options={voiceStyles}
               value={config.nativeVoiceStyle}
