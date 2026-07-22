@@ -2,19 +2,24 @@
   color-scheme: dark;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #06111f;
-  color: #edf4ff;
+  background: #02060d;
+  color: #f1f7ff;
   line-height: 1.45;
   font-weight: 500;
-  --bg: #06111f;
-  --panel: rgba(10, 27, 48, 0.78);
-  --line-strong: rgba(132, 165, 205, 0.46);
-  --text: #edf4ff;
-  --muted: #aab8cd;
-  --soft: #cfe0f6;
-  --accent: #8fb3dc;
-  --warm: #b6cce4;
-  --shadow: 0 18px 54px rgba(0, 0, 0, 0.34);
+  --bg: #02060d;
+  --panel: #07121f;
+  --panel-raised: #0a1728;
+  --line: rgba(113, 152, 206, 0.18);
+  --line-strong: rgba(57, 150, 255, 0.58);
+  --text: #f1f7ff;
+  --muted: #9fb1ca;
+  --soft: #d7e7ff;
+  --accent: #2f9bff;
+  --accent-strong: #64b8ff;
+  --accent-soft: rgba(47, 155, 255, 0.18);
+  --success: #46d19a;
+  --warning: #f7c66a;
+  --shadow: 0 4px 8px rgba(0, 0, 0, 0.32);
 }
 
 * {
@@ -62,10 +67,8 @@ input:focus-visible {
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(115deg, rgba(132, 165, 205, 0.14), transparent 36%),
-    radial-gradient(ellipse at 78% 10%, rgba(126, 173, 210, 0.11), transparent 38%),
-    radial-gradient(ellipse at 24% -8%, rgba(104, 128, 181, 0.18), transparent 42%),
-    linear-gradient(180deg, #0a1f39 0%, #06172a 52%, #030914 100%);
+    linear-gradient(120deg, rgba(47, 155, 255, 0.12), transparent 34%),
+    linear-gradient(180deg, #06142a 0%, #030913 54%, #010308 100%);
 }
 
 .app-bg::before {
@@ -73,9 +76,8 @@ input:focus-visible {
   inset: 0;
   content: "";
   background:
-    repeating-linear-gradient(110deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 18px),
-    linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.42));
-  opacity: 0.42;
+    linear-gradient(90deg, rgba(47, 155, 255, 0.05), transparent 28%, transparent 72%, rgba(47, 155, 255, 0.04)),
+    linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.58));
 }
 
 .topbar {
@@ -89,9 +91,9 @@ input:focus-visible {
   max-width: 780px;
   margin: 0 auto;
   padding: 12px 0 14px;
-  border-bottom: 1px solid rgba(208, 223, 245, 0.08);
-  background: linear-gradient(180deg, rgba(6, 17, 31, 0.97), rgba(6, 17, 31, 0.72));
-  backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(2, 6, 13, 0.98), rgba(2, 6, 13, 0.78));
+  backdrop-filter: blur(14px);
 }
 
 .topbar h1,
@@ -150,16 +152,16 @@ input:focus-visible {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  color: #d7e6ff;
+  color: #e7f4ff;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(132, 165, 205, 0.12)),
-    rgba(104, 128, 181, 0.12);
-  box-shadow: inset -14px -12px 26px rgba(8, 16, 27, 0.42), inset 0 0 30px rgba(132, 165, 205, 0.1), 0 0 70px rgba(91, 124, 176, 0.2);
+    linear-gradient(145deg, rgba(47, 155, 255, 0.28), rgba(10, 25, 42, 0.88)),
+    #08182a;
+  box-shadow: inset -14px -12px 26px rgba(0, 0, 0, 0.48), inset 0 0 28px rgba(100, 184, 255, 0.16), 0 0 52px rgba(47, 155, 255, 0.2);
 }
 
 .eyebrow {
   margin: 0;
-  color: var(--accent);
+  color: var(--accent-strong);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 0.72rem;
@@ -173,12 +175,11 @@ input:focus-visible {
 .player-card,
 .answer,
 .empty-state {
-  border: 1px solid rgba(186, 207, 238, 0.13);
+  border: 1px solid var(--line);
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.045), transparent 42%),
+    linear-gradient(160deg, rgba(47, 155, 255, 0.075), transparent 46%),
     var(--panel);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
 }
 
 .notice {
@@ -213,7 +214,7 @@ input:focus-visible {
 .progress-card span,
 .progress-card p {
   margin: 0;
-  color: #9eacc1;
+  color: var(--muted);
   font-size: 0.86rem;
 }
 
@@ -229,15 +230,15 @@ input:focus-visible {
   overflow: hidden;
   border: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(159, 177, 202, 0.16);
 }
 
 .progress-card progress::-webkit-progress-bar {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(159, 177, 202, 0.16);
 }
 
 .progress-card progress::-webkit-progress-value {
-  background: linear-gradient(90deg, var(--accent), var(--warm));
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
 }
 
 .progress-card progress::-moz-progress-bar {
@@ -280,8 +281,8 @@ input:focus-visible {
   padding: 8px 10px;
   border-radius: 8px;
   color: var(--soft);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid transparent;
+  background: rgba(159, 177, 202, 0.08);
+  border: 1px solid rgba(113, 152, 206, 0.12);
   transition:
     transform 180ms ease,
     border-color 180ms ease,
@@ -296,9 +297,9 @@ input:focus-visible {
   color: #f8fbff;
   border-color: var(--line-strong);
   background:
-    linear-gradient(135deg, rgba(132, 165, 205, 0.18), rgba(126, 173, 210, 0.1)),
-    rgba(80, 112, 160, 0.14);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    linear-gradient(135deg, rgba(47, 155, 255, 0.28), rgba(25, 83, 162, 0.18)),
+    var(--accent-soft);
+  box-shadow: inset 0 1px 0 rgba(187, 224, 255, 0.12);
 }
 
 .pill-grid {
@@ -317,8 +318,8 @@ input:focus-visible {
   text-align: left;
   border-radius: 8px;
   color: #edf4ff;
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(159, 177, 202, 0.075);
+  border: 1px solid rgba(113, 152, 206, 0.13);
   transition:
     transform 180ms ease,
     border-color 180ms ease,
@@ -332,8 +333,8 @@ input:focus-visible {
 .icon-button:hover,
 .secondary-button:hover {
   transform: translateY(-1px);
-  border-color: rgba(208, 223, 245, 0.22);
-  background: rgba(255, 255, 255, 0.085);
+  border-color: rgba(100, 184, 255, 0.42);
+  background: rgba(47, 155, 255, 0.12);
 }
 
 .choice span,
@@ -375,10 +376,10 @@ input:focus-visible {
   min-height: 46px;
   width: 100%;
   padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(113, 152, 206, 0.2);
   border-radius: 8px;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(159, 177, 202, 0.08);
   letter-spacing: 0;
 }
 
@@ -445,23 +446,23 @@ input[type="range"] {
 
 .primary-button {
   width: 100%;
-  background: linear-gradient(135deg, #89add8, #9bb9d8 56%, #c0d0e1);
-  color: #06101b;
+  background: linear-gradient(135deg, #2f9bff, #65bdff);
+  color: #02060d;
   font-weight: 800;
-  box-shadow: 0 12px 30px rgba(98, 174, 202, 0.26);
+  box-shadow: 0 10px 22px rgba(47, 155, 255, 0.24);
 }
 
 .primary-button:hover,
 .round-button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 16px 36px rgba(98, 174, 202, 0.3);
+  box-shadow: 0 14px 26px rgba(47, 155, 255, 0.3);
 }
 
 .secondary-button {
   width: 100%;
   color: #dceaff;
-  background: rgba(255, 255, 255, 0.09);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(159, 177, 202, 0.085);
+  border: 1px solid rgba(113, 152, 206, 0.16);
 }
 
 .secondary-button:disabled {
@@ -477,16 +478,16 @@ input[type="range"] {
   width: 44px;
   padding: 0;
   color: #dceaff;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(159, 177, 202, 0.08);
+  border: 1px solid rgba(113, 152, 206, 0.14);
 }
 
 .round-button {
   width: 78px;
   height: 78px;
   border-radius: 50%;
-  background: linear-gradient(145deg, #d8e6f5, #91acd0);
-  color: #07101a;
+  background: linear-gradient(145deg, #65bdff, #2f9bff);
+  color: #02060d;
 }
 
 .sticky-actions {
@@ -500,11 +501,11 @@ input[type="range"] {
   max-width: 780px;
   margin: 0 auto;
   padding: 10px;
-  border: 1px solid rgba(208, 223, 245, 0.12);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(6, 17, 31, 0.82);
-  box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.26);
-  backdrop-filter: blur(20px);
+  background: rgba(2, 6, 13, 0.9);
+  box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(16px);
 }
 
 .player {
@@ -560,7 +561,7 @@ input[type="range"] {
   min-height: 38px;
   padding: 6px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(159, 177, 202, 0.08);
   color: var(--soft);
   font-size: 0.86rem;
 }
@@ -571,7 +572,7 @@ input[type="range"] {
   width: 100%;
   padding: 12px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(159, 177, 202, 0.065);
 }
 
 .player-actions,
@@ -620,7 +621,7 @@ input[type="range"] {
   min-height: 58px;
   padding: 10px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.055);
+  background: var(--panel-raised);
 }
 
 .quiz {
@@ -652,7 +653,7 @@ input[type="range"] {
 .answer p,
 .answer span {
   margin: 0;
-  color: #aebbd0;
+  color: var(--muted);
 }
 
 .empty-state {
@@ -662,7 +663,7 @@ input[type="range"] {
   padding: 24px;
   border-radius: 8px;
   text-align: center;
-  color: #aebbd0;
+  color: var(--muted);
 }
 
 .empty-state p {
