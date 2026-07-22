@@ -5,6 +5,8 @@ import {
   Check,
   ChevronLeft,
   Clock3,
+  Cloud,
+  Copy,
   Heart,
   History,
   Moon,
@@ -83,6 +85,13 @@ type SessionRecord = {
   config: SessionConfig;
   playedIds: string[];
 };
+type SyncPayload = {
+  version: 1;
+  config: SessionConfig;
+  vocabMetadata: Array<PersistedVocabMetadata & { id: string }>;
+  history: SessionRecord[];
+  playlistPositions: Record<string, number>;
+};
 
 const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese"];
 const targetLanguages: TargetLanguage[] = ["Japanese", "Korean", "English"];
@@ -156,6 +165,7 @@ const rainSoundUrls: Partial<Record<BackgroundSound, string>> = {
   "heavy rain": "/audio/background/heavy-rain.mp3",
   "Rain and Thunder": "/audio/background/thunderstorm.mp3",
 };
+const syncAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const simplifiedChineseLabels: Record<string, string> = {
   "Night vocabulary review": "词汇复习",
   "Relaxed vocabulary review for quiet nights.": "适合安静时段的轻松词汇复习。",
@@ -166,6 +176,19 @@ const simplifiedChineseLabels: Record<string, string> = {
   Begin: "开始",
   "Back to setup": "返回设置",
   "Session history": "复习记录",
+  "Sync account": "同步账号",
+  "Create temporary account": "创建临时账号",
+  Connect: "连接",
+  "Save now": "立即保存",
+  "Copy sync code": "复制同步码",
+  "Local only": "仅本机",
+  "Sync enabled": "已启用同步",
+  "Temporary account created": "临时账号已创建",
+  "Loaded remote progress": "已载入云端进度",
+  "Saved to Supabase": "已保存到 Supabase",
+  "Synced just now": "刚刚已同步",
+  "Sync failed": "同步失败",
+  "Sync code copied": "同步码已复制",
   "Target language": "目标语言",
   "Native language": "母语",
   "Target speed": "目标语语速",
@@ -301,6 +324,74 @@ function loadJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function compactSyncCode(code: string) {
+  const compact = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return compact.startsWith("LS") ? compact.slice(2) : compact;
+}
+
+function formatSyncCode(code: string) {
+  return `LS-${code.match(/.{1,4}/g)?.join("-") || code}`;
+}
+
+function generateSyncCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let code = "";
+  for (const byte of bytes) code += syncAlphabet[byte % syncAlphabet.length];
+  return formatSyncCode(code);
+}
+
+async function syncKeyFromCode(code: string) {
+  const compact = compactSyncCode(code);
+  if (compact.length !== 16) throw new Error("Sync code must have 16 characters.");
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`lingosleep-sync:${compact}`));
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function createSyncPayload(
+  config: SessionConfig,
+  vocab: VocabItem[],
+  history: SessionRecord[],
+  playlistPositions: Record<string, number>
+): SyncPayload {
+  return {
+    version: 1,
+    config,
+    vocabMetadata: vocab.map((item) => ({
+      id: item.id,
+      status: item.status,
+      favorite: item.favorite,
+      timesPlayed: item.timesPlayed,
+      lastPlayed: item.lastPlayed,
+    })),
+    history,
+    playlistPositions,
+  };
+}
+
+function readPlaylistPositions(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === "number")
+  );
+}
+
+function readHistory(value: unknown): SessionRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (record): record is SessionRecord =>
+      record &&
+      typeof record === "object" &&
+      typeof (record as SessionRecord).id === "string" &&
+      typeof (record as SessionRecord).date === "string" &&
+      Array.isArray((record as SessionRecord).playedIds)
+  );
+}
+
+function readSyncPayload(value: unknown): Partial<SyncPayload> {
+  if (!value || typeof value !== "object") return {};
+  return value as Partial<SyncPayload>;
 }
 
 function normalizeConfig(config: SessionConfig): SessionConfig {
@@ -647,6 +738,11 @@ function App() {
   });
   const [history, setHistory] = useState<SessionRecord[]>(() => loadJson("lingosleep-history", []));
   const [playlistPositions, setPlaylistPositions] = useState<Record<string, number>>(() => loadJson("lingosleep-playlist-positions", {}));
+  const [syncCode, setSyncCode] = useState(() => localStorage.getItem("lingosleep-sync-code") || "");
+  const [syncCodeInput, setSyncCodeInput] = useState("");
+  const [syncStatus, setSyncStatus] = useState(syncCode ? "Sync enabled" : "Local only");
+  const [syncReady, setSyncReady] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [step, setStep] = useState<"onboarding" | "setup" | "player" | "history" | "quiz">(() =>
     localStorage.getItem("lingosleep-onboarded") ? "setup" : "onboarding"
   );
@@ -684,6 +780,10 @@ function App() {
   useEffect(() => localStorage.setItem("lingosleep-vocab", JSON.stringify(vocab)), [vocab]);
   useEffect(() => localStorage.setItem("lingosleep-history", JSON.stringify(history)), [history]);
   useEffect(() => localStorage.setItem("lingosleep-playlist-positions", JSON.stringify(playlistPositions)), [playlistPositions]);
+  useEffect(() => {
+    if (syncCode) localStorage.setItem("lingosleep-sync-code", syncCode);
+    else localStorage.removeItem("lingosleep-sync-code");
+  }, [syncCode]);
   useEffect(() => {
     void supabase.auth.getSession().then(({ error }) => {
       if (error) console.warn("Supabase auth session check failed", error);
@@ -937,6 +1037,94 @@ function App() {
     setVocab((items) => items.map((item) => (item.id === id ? { ...item, favorite: !item.favorite } : item)));
   };
 
+  const applySyncPayload = (value: unknown) => {
+    const payload = readSyncPayload(value);
+    if (payload.config) setConfig(normalizeConfig({ ...defaultConfig, ...payload.config } as SessionConfig));
+    if (Array.isArray(payload.vocabMetadata)) {
+      setVocab((items) => mergeVocabMetadata(items, payload.vocabMetadata as unknown[]));
+    }
+    setHistory(readHistory(payload.history));
+    setPlaylistPositions(readPlaylistPositions(payload.playlistPositions));
+  };
+
+  const saveSyncData = async (code = syncCode, showStatus = false) => {
+    if (!code) return;
+    setIsSyncing(true);
+    try {
+      const accountKey = await syncKeyFromCode(code);
+      const payload = createSyncPayload(configRef.current, vocab, history, playlistPositions);
+      const { error } = await supabase.rpc("save_temp_account", { account_key_input: accountKey, payload_input: payload });
+      if (error) throw error;
+      setSyncStatus(showStatus ? "Saved to Supabase" : "Synced just now");
+    } catch (error) {
+      console.warn("Temporary account sync failed", error);
+      setSyncStatus("Sync failed");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const createTempAccount = async () => {
+    const code = generateSyncCode();
+    setIsSyncing(true);
+    try {
+      const accountKey = await syncKeyFromCode(code);
+      const payload = createSyncPayload(configRef.current, vocab, history, playlistPositions);
+      const { error } = await supabase.rpc("create_temp_account", { account_key_input: accountKey, payload_input: payload });
+      if (error) throw error;
+      setSyncCode(code);
+      setSyncCodeInput("");
+      setSyncReady(true);
+      setSyncStatus("Temporary account created");
+    } catch (error) {
+      console.warn("Temporary account creation failed", error);
+      setSyncStatus("Sync failed");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const loadTempAccount = async (code: string) => {
+    setIsSyncing(true);
+    try {
+      const accountKey = await syncKeyFromCode(code);
+      const { data, error } = await supabase.rpc("get_temp_account", { account_key_input: accountKey });
+      if (error) throw error;
+      applySyncPayload(data);
+      setSyncCode(code);
+      setSyncReady(true);
+      setSyncStatus("Loaded remote progress");
+    } catch (error) {
+      console.warn("Temporary account load failed", error);
+      setSyncStatus("Sync failed");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const connectTempAccount = async () => {
+    const compact = compactSyncCode(syncCodeInput);
+    await loadTempAccount(formatSyncCode(compact));
+    setSyncCodeInput("");
+  };
+
+  const copySyncCode = async () => {
+    if (!syncCode || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(syncCode);
+    setSyncStatus("Sync code copied");
+  };
+
+  useEffect(() => {
+    if (!syncCode || !syncReady) return;
+    const timer = window.setTimeout(() => void saveSyncData(), 1200);
+    return () => window.clearTimeout(timer);
+  }, [syncCode, syncReady, config, vocab, history, playlistPositions]);
+
+  useEffect(() => {
+    if (!syncCode) return;
+    void loadTempAccount(syncCode);
+  }, []);
+
   return (
     <main className="app-shell">
       <div className="app-bg" />
@@ -983,6 +1171,18 @@ function App() {
       {step === "setup" && (
         <section className="screen stack">
           <Notice t={t} />
+          <SyncPanel
+            t={t}
+            syncCode={syncCode}
+            syncCodeInput={syncCodeInput}
+            syncStatus={syncStatus}
+            isSyncing={isSyncing}
+            onCodeInput={setSyncCodeInput}
+            onCreate={createTempAccount}
+            onConnect={connectTempAccount}
+            onCopy={copySyncCode}
+            onSave={() => saveSyncData(syncCode, true)}
+          />
           <ControlGroup title={t("Target language")}>
             <Segmented
               options={targetLanguages}
@@ -1336,6 +1536,67 @@ function ControlGroup({ title, children }: { title: string; children: React.Reac
       <h2>{title}</h2>
       {children}
     </section>
+  );
+}
+
+function SyncPanel({
+  t,
+  syncCode,
+  syncCodeInput,
+  syncStatus,
+  isSyncing,
+  onCodeInput,
+  onCreate,
+  onConnect,
+  onCopy,
+  onSave,
+}: {
+  t: (text: string) => string;
+  syncCode: string;
+  syncCodeInput: string;
+  syncStatus: string;
+  isSyncing: boolean;
+  onCodeInput: (value: string) => void;
+  onCreate: () => void;
+  onConnect: () => void;
+  onCopy: () => void;
+  onSave: () => void;
+}) {
+  const canConnect = compactSyncCode(syncCodeInput).length === 16;
+
+  return (
+    <ControlGroup title={t("Sync account")}>
+      <div className="sync-panel">
+        <div className="sync-code-row">
+          <input className="sync-input" value={syncCode || syncCodeInput} onChange={(event) => onCodeInput(event.target.value)} placeholder="LS-XXXX-XXXX-XXXX-XXXX" readOnly={!!syncCode} />
+          {syncCode && (
+            <button className="icon-button" onClick={onCopy} aria-label={t("Copy sync code")}>
+              <Copy size={18} />
+            </button>
+          )}
+        </div>
+        <p className="sync-status">{t(syncStatus)}</p>
+        <div className="sync-actions">
+          {!syncCode ? (
+            <>
+              <button className="secondary-button" onClick={onCreate} disabled={isSyncing}>
+                <Cloud size={18} />
+                {t("Create temporary account")}
+              </button>
+              <button className="secondary-button" onClick={onConnect} disabled={isSyncing || !canConnect}>
+                <Cloud size={18} />
+                {t("Connect")}
+              </button>
+            </>
+          ) : (
+            <button className="secondary-button" onClick={onSave} disabled={isSyncing}>
+              <Cloud size={18} />
+              {t("Save now")}
+            </button>
+          )}
+        </div>
+      </div>
+    </ControlGroup>
   );
 }
 
