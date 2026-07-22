@@ -39,6 +39,20 @@ type BackgroundSound = "soft rain" | "heavy rain" | "Rain and Thunder" | "white 
 type PlaybackOrder = "Start from beginning" | "Start from last left" | "Random";
 type ReviewTopic = Topic | "all topics";
 type PersistedVocabMetadata = Pick<VocabItem, "status" | "favorite" | "timesPlayed" | "lastPlayed">;
+type VocabularyRow = {
+  id: string;
+  target_language: "ja" | "ko";
+  level: "basic" | "intermediate" | "advanced";
+  topic: string;
+  target_text: string;
+  reading: string | null;
+  romanization: string | null;
+  meaning_en: string;
+  meaning_zh_cn: string | null;
+  example_text: string | null;
+  example_translation_en: string | null;
+  example_translation_zh_cn: string | null;
+};
 
 type SessionConfig = {
   targetLanguage: TargetLanguage;
@@ -68,6 +82,7 @@ type SessionRecord = {
 const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese"];
 const koreanVoiceBoost = 1.3;
 const softRainBoost = 1.3;
+const remoteVocabularyPageSize = 1000;
 const allTopics: ReviewTopic = "all topics";
 const levels: Level[] = ["Basic", "Intermediate", "Advanced"];
 const topics: Topic[] = [
@@ -291,6 +306,49 @@ function readPersistedVocabMetadata(stored: unknown): PersistedVocabMetadata {
   return metadata;
 }
 
+function mergeVocabMetadata(items: VocabItem[], stored: unknown[]) {
+  const storedById = new Map(stored.map((item) => [(item as { id?: unknown }).id, item]));
+  return items.map((item) => ({ ...withDefaultMetadata(item), ...readPersistedVocabMetadata(storedById.get(item.id)) }));
+}
+
+function mapVocabularyRow(row: VocabularyRow): VocabItem | null {
+  const targetLanguage = row.target_language === "ja" ? "Japanese" : row.target_language === "ko" ? "Korean" : null;
+  const level = row.level === "basic" ? "Basic" : row.level === "intermediate" ? "Intermediate" : row.level === "advanced" ? "Advanced" : null;
+  if (!targetLanguage || !level || !topics.includes(row.topic as Topic)) return null;
+
+  return {
+    id: row.id,
+    targetLanguage,
+    targetText: row.target_text,
+    meanings: { English: row.meaning_en, "Simplified Chinese": row.meaning_zh_cn || row.meaning_en },
+    reading: row.reading || row.target_text,
+    romanization: row.romanization || "",
+    level,
+    topic: row.topic as Topic,
+    exampleSentence: row.example_text || row.target_text,
+    exampleTranslations: {
+      English: row.example_translation_en || row.meaning_en,
+      "Simplified Chinese": row.example_translation_zh_cn || row.meaning_zh_cn || row.meaning_en,
+    },
+  };
+}
+
+async function fetchRemoteVocabulary() {
+  const rows: VocabularyRow[] = [];
+  for (let from = 0; ; from += remoteVocabularyPageSize) {
+    const { data, error } = await supabase
+      .from("vocabulary")
+      .select(
+        "id,target_language,level,topic,target_text,reading,romanization,meaning_en,meaning_zh_cn,example_text,example_translation_en,example_translation_zh_cn"
+      )
+      .range(from, from + remoteVocabularyPageSize - 1);
+    if (error) throw error;
+    rows.push(...((data || []) as VocabularyRow[]));
+    if (!data || data.length < remoteVocabularyPageSize) break;
+  }
+  return rows.map(mapVocabularyRow).filter(Boolean) as VocabItem[];
+}
+
 function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: number, rateMultiplier: number) {
   return new Promise<void>((resolve) => {
     if (!("speechSynthesis" in window)) {
@@ -436,9 +494,7 @@ function App() {
   const configRef = useRef(config);
   const [vocab, setVocab] = useState<VocabItem[]>(() => {
     const stored = loadJson<unknown>("lingosleep-vocab", null);
-    if (!Array.isArray(stored)) return vocabSeed.map(withDefaultMetadata);
-    const storedById = new Map(stored.map((item) => [item.id, item]));
-    return vocabSeed.map((item) => ({ ...withDefaultMetadata(item), ...readPersistedVocabMetadata(storedById.get(item.id)) }));
+    return mergeVocabMetadata(vocabSeed, Array.isArray(stored) ? stored : []);
   });
   const [history, setHistory] = useState<SessionRecord[]>(() => loadJson("lingosleep-history", []));
   const [playlistPositions, setPlaylistPositions] = useState<Record<string, number>>(() => loadJson("lingosleep-playlist-positions", {}));
@@ -479,7 +535,19 @@ function App() {
   useEffect(() => localStorage.setItem("lingosleep-history", JSON.stringify(history)), [history]);
   useEffect(() => localStorage.setItem("lingosleep-playlist-positions", JSON.stringify(playlistPositions)), [playlistPositions]);
   useEffect(() => {
-    void supabase.auth.getSession();
+    void supabase.auth.getSession().then(({ error }) => {
+      if (error) console.warn("Supabase auth session check failed", error);
+    });
+    if (import.meta.env.VITE_SUPABASE_URL === "https://example.supabase.co") return;
+    void fetchRemoteVocabulary()
+      .then((remoteVocab) => {
+        if (remoteVocab.length) {
+          setVocab((current) => mergeVocabMetadata(remoteVocab, current));
+        }
+      })
+      .catch((error) => {
+        console.warn("Supabase vocabulary load failed; using bundled vocabulary", error);
+      });
   }, []);
 
   const playlist = useMemo(() => buildPlaylist(vocab, config), [vocab, config]);
