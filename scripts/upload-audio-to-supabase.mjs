@@ -5,6 +5,13 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const audioDir = path.join(rootDir, "public", "audio");
+const prefixArgIndex = process.argv.indexOf("--prefix");
+const uploadPrefix =
+  prefixArgIndex === -1 ? "" : (process.argv[prefixArgIndex + 1] || "").replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/?$/, "/");
+const excludePrefixes = process.argv
+  .flatMap((arg, index, args) => (arg === "--exclude-prefix" ? [args[index + 1]] : []))
+  .filter(Boolean)
+  .map((value) => value.replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/?$/, "/"));
 
 const loadEnv = async () => {
   try {
@@ -41,7 +48,11 @@ if (!token) {
   throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ACCESS_TOKEN.");
 }
 
-const files = (await walk(audioDir)).filter((file) => file.endsWith(".mp3") && !file.includes(`${path.sep}samples${path.sep}`));
+const files = (await walk(audioDir)).filter((file) => {
+  if (!file.endsWith(".mp3") || file.includes(`${path.sep}samples${path.sep}`) || file.includes(`${path.sep}background${path.sep}`)) return false;
+  const storagePath = path.relative(audioDir, file).replaceAll(path.sep, "/");
+  return (!uploadPrefix || storagePath.startsWith(uploadPrefix)) && !excludePrefixes.some((prefix) => storagePath.startsWith(prefix));
+});
 for (const file of files) {
   const info = await stat(file);
   if (!info.size) continue;
