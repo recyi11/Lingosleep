@@ -144,6 +144,8 @@ const sessionConfig = {
   nativeVoiceVolume: 0.95,
   targetVoiceStyle: "Female",
   nativeVoiceStyle: "Female",
+  targetDelaySeconds: 2.8,
+  pauseSeconds: 1.6,
   backgroundVolume: 0.34,
 };
 
@@ -455,8 +457,8 @@ test("Recall mode does not lower background volume for speech", async ({ page })
   expect(rampTargetsThroughTarget).toEqual([]);
 });
 
-test("Pause slider controls native-to-target wait in Recall mode", async ({ page }) => {
-  await prepareAudioHarness(page, { pauseSeconds: 0.5 });
+test("Meaning delay slider controls native-to-target wait in Recall mode", async ({ page }) => {
+  await prepareAudioHarness(page, { targetDelaySeconds: 0.5 });
   await page.goto("/");
 
   await startSession(page);
@@ -466,6 +468,25 @@ test("Pause slider controls native-to-target wait in Recall mode", async ({ page
   await page.waitForTimeout(600);
 
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん"]);
+});
+
+test("Pause between words slider controls the wait before the next word", async ({ page }) => {
+  await prepareAudioHarness(page, { targetDelaySeconds: 0, pauseSeconds: 0.5 });
+  await page.goto("/");
+
+  await startSession(page);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん"]);
+
+  await page.evaluate(() => window.__audio.spoken[1]?.onend?.());
+  await page.waitForTimeout(600);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん", "ごはん"]);
+
+  await page.evaluate(() => window.__audio.spoken[2]?.onend?.());
+  await page.waitForTimeout(600);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん", "ごはん", "水"]);
 });
 
 test("Stop during Recall-mode gap prevents target and reading playback", async ({ page }) => {

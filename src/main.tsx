@@ -253,7 +253,7 @@ const defaultConfig: SessionConfig = {
   nativeVoiceRate: 1,
   targetVoiceStyle: "Female",
   nativeVoiceStyle: "Female",
-  targetDelaySeconds: 0.3,
+  targetDelaySeconds: 2.8,
   pauseSeconds: 1.6,
   backgroundVolume: 0.34,
 };
@@ -717,7 +717,7 @@ function App() {
       if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(0.92), sessionToken))) return;
     } else if (sessionConfig.mode === "Recall mode") {
       if (!(await speakIfPlaying(item.meanings[sessionConfig.nativeLanguage], sessionConfig.nativeLanguage, nativeVolume(), sessionToken))) return;
-      if (!(await waitIfPlaying(2800, sessionToken))) return;
+      if (!(await waitIfPlaying(configRef.current.targetDelaySeconds * 1000, sessionToken))) return;
       background.duck(true);
       if (!(await speakIfPlaying(targetSpeechText, sessionConfig.targetLanguage, voiceVolume(), sessionToken))) return;
       if (!(await waitIfPlaying(500, sessionToken))) return;
@@ -999,7 +999,7 @@ function App() {
               label={t("Meaning to target delay")}
               value={config.targetDelaySeconds}
               min={0}
-              max={2}
+              max={5}
               step={0.1}
               valueText={`${config.targetDelaySeconds.toFixed(1)}s`}
               onChange={(value) => updateConfig("targetDelaySeconds", value)}
