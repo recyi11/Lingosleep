@@ -4,8 +4,8 @@
   "description": "Nighttime Japanese and Korean vocabulary review.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#070b11",
-  "theme_color": "#070b11",
+  "background_color": "#06111f",
+  "theme_color": "#06111f",
   "icons": [
     {
       "src": "/icon.svg",

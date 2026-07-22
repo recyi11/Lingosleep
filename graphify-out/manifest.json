@@ -1,0 +1,82 @@
+{
+  "package.json": {
+    "mtime": 1784187903.8446057,
+    "ast_hash": "ee0e29c911aa3317f5a21554a28b07b7",
+    "semantic_hash": "ee0e29c911aa3317f5a21554a28b07b7"
+  },
+  "public/public-sw.js": {
+    "mtime": 1784196420.2779045,
+    "ast_hash": "13ce4cfc42b0ad05625b645d02345efc",
+    "semantic_hash": "13ce4cfc42b0ad05625b645d02345efc"
+  },
+  "src/lib/supabase.ts": {
+    "mtime": 1784183190.007049,
+    "ast_hash": "72708cf0c92df1fbb59e2fb3f352c529",
+    "semantic_hash": "72708cf0c92df1fbb59e2fb3f352c529"
+  },
+  "src/main.tsx": {
+    "mtime": 1784257340.0432715,
+    "ast_hash": "8561943e167835df3183e51619a52ff2",
+    "semantic_hash": "8561943e167835df3183e51619a52ff2"
+  },
+  "src/vite-env.d.ts": {
+    "mtime": 1784174152.9090936,
+    "ast_hash": "0352474ba2918efe13895edbc3780d94",
+    "semantic_hash": "0352474ba2918efe13895edbc3780d94"
+  },
+  "supabase/migrations/20260716000000_initial_schema.sql": {
+    "mtime": 1784257340.0441895,
+    "ast_hash": "5b718b82d82a5c1106043c374810e6c2",
+    "semantic_hash": "5b718b82d82a5c1106043c374810e6c2"
+  },
+  "tsconfig.json": {
+    "mtime": 1784174146.2779377,
+    "ast_hash": "aacbd3ecce0e2f47a3dfd89312c4cb89",
+    "semantic_hash": "aacbd3ecce0e2f47a3dfd89312c4cb89"
+  },
+  "vite.config.ts": {
+    "mtime": 1784173638.5634506,
+    "ast_hash": "2dc51eadd3ccf3ed74f72d3e85c05442",
+    "semantic_hash": "2dc51eadd3ccf3ed74f72d3e85c05442"
+  },
+  "playwright.config.ts": {
+    "mtime": 1784187903.8448534,
+    "ast_hash": "1426e96646c236b166667aec5a0246a8",
+    "semantic_hash": "1426e96646c236b166667aec5a0246a8"
+  },
+  "src/vocabulary.ts": {
+    "mtime": 1784257340.043621,
+    "ast_hash": "e08ee86a6111bd08c790235e78908c32",
+    "semantic_hash": "e08ee86a6111bd08c790235e78908c32"
+  },
+  "tests/e2e/audio-lifecycle.spec.ts": {
+    "mtime": 1784257340.0447178,
+    "ast_hash": "48b7b09b4daca22c7186591bd712fac0",
+    "semantic_hash": "48b7b09b4daca22c7186591bd712fac0"
+  },
+  "tests/e2e/playback-persistence.spec.ts": {
+    "mtime": 1784257340.0452745,
+    "ast_hash": "7b551663c405f5523a23ed3a2a126737",
+    "semantic_hash": "7b551663c405f5523a23ed3a2a126737"
+  },
+  "tests/e2e/service-worker-strategy.spec.ts": {
+    "mtime": 1784196353.7343276,
+    "ast_hash": "2ea0ce62e68464ac4347f01711686e08",
+    "semantic_hash": "2ea0ce62e68464ac4347f01711686e08"
+  },
+  "public/audio/background/heavy-rain.mp3": {
+    "mtime": 1784257340.0116844,
+    "ast_hash": "4d634b5aab2fe1d1b9418b034d531918",
+    "semantic_hash": "4d634b5aab2fe1d1b9418b034d531918"
+  },
+  "public/audio/background/soft-rain.mp3": {
+    "mtime": 1784257340.019303,
+    "ast_hash": "15a6a5bc161ab484f38d017e08713258",
+    "semantic_hash": "15a6a5bc161ab484f38d017e08713258"
+  },
+  "public/audio/background/thunderstorm.mp3": {
+    "mtime": 1784257340.0426068,
+    "ast_hash": "07798912ac22a5aac09fd3804ace9214",
+    "semantic_hash": "07798912ac22a5aac09fd3804ace9214"
+  }
+}

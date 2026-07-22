@@ -1,4 +1,4 @@
-const CACHE = "lingosleep-v2";
+const CACHE = "lingosleep-v3";
 const ASSETS = ["/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

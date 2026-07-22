@@ -38,7 +38,22 @@ type PlaybackMode =
 type BackgroundSound = "soft rain" | "heavy rain" | "Rain and Thunder" | "white noise" | "brown noise" | "fireplace" | "none";
 type PlaybackOrder = "Start from beginning" | "Start from last left" | "Random";
 type ReviewTopic = Topic | "all topics";
+type VoiceStyle = "Auto" | "Female" | "Male";
 type PersistedVocabMetadata = Pick<VocabItem, "status" | "favorite" | "timesPlayed" | "lastPlayed">;
+type VocabularyRow = {
+  id: string;
+  target_language: "ja" | "ko";
+  level: "basic" | "intermediate" | "advanced";
+  topic: string;
+  target_text: string;
+  reading: string | null;
+  romanization: string | null;
+  meaning_en: string;
+  meaning_zh_cn: string | null;
+  example_text: string | null;
+  example_translation_en: string | null;
+  example_translation_zh_cn: string | null;
+};
 
 type SessionConfig = {
   targetLanguage: TargetLanguage;
@@ -54,6 +69,7 @@ type SessionConfig = {
   nativeVoiceVolume: number;
   targetVoiceRate: number;
   nativeVoiceRate: number;
+  nativeVoiceStyle: VoiceStyle;
   targetDelaySeconds: number;
   pauseSeconds: number;
   backgroundVolume: number;
@@ -69,6 +85,11 @@ type SessionRecord = {
 const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese"];
 const koreanVoiceBoost = 1.3;
 const softRainBoost = 1.3;
+const playlistBucketSize = 70;
+const remoteVocabularyPageSize = 1000;
+const voiceStyles: VoiceStyle[] = ["Female", "Male"];
+const femaleVoiceHints = ["samantha", "victoria", "karen", "moira", "tessa", "fiona", "zira", "aria", "jenny", "susan"];
+const maleVoiceHints = ["alex", "daniel", "fred", "tom", "david", "mark", "guy", "george", "ryan"];
 const allTopics: ReviewTopic = "all topics";
 const levels: Level[] = ["Basic", "Intermediate", "Advanced"];
 const topics: Topic[] = [
@@ -111,6 +132,9 @@ const simplifiedChineseLabels: Record<string, string> = {
   "Native language": "母语",
   "Target speed": "目标语语速",
   "Native speed": "母语语速",
+  "Native voice style": "母语声线",
+  Female: "女声",
+  Male: "男声",
   Level: "等级",
   Topic: "词库",
   "Playback mode": "播放模式",
@@ -209,6 +233,7 @@ const defaultConfig: SessionConfig = {
   nativeVoiceVolume: 0.95,
   targetVoiceRate: 1,
   nativeVoiceRate: 1,
+  nativeVoiceStyle: "Female",
   targetDelaySeconds: 0.3,
   pauseSeconds: 1.6,
   backgroundVolume: 0.34,
@@ -256,6 +281,7 @@ function normalizeConfig(config: SessionConfig): SessionConfig {
     typeof (config as SessionConfig & { targetDelaySeconds?: unknown }).targetDelaySeconds === "number"
       ? (config as SessionConfig & { targetDelaySeconds: number }).targetDelaySeconds
       : defaultConfig.targetDelaySeconds;
+  const storedNativeVoiceStyle = (config as SessionConfig & { nativeVoiceStyle?: unknown }).nativeVoiceStyle;
 
   return {
     ...config,
@@ -267,6 +293,9 @@ function normalizeConfig(config: SessionConfig): SessionConfig {
     nativeVoiceVolume,
     targetVoiceRate,
     nativeVoiceRate,
+    nativeVoiceStyle: voiceStyles.includes(storedNativeVoiceStyle as VoiceStyle)
+      ? (storedNativeVoiceStyle as VoiceStyle)
+      : defaultConfig.nativeVoiceStyle,
     targetDelaySeconds,
     pauseSeconds,
     nativeLanguage: nativeLanguages.includes(config.nativeLanguage) ? config.nativeLanguage : "Simplified Chinese",
@@ -299,7 +328,57 @@ function readPersistedVocabMetadata(stored: unknown): PersistedVocabMetadata {
   return metadata;
 }
 
-function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: number, rateMultiplier: number) {
+function mergeVocabMetadata(items: VocabItem[], stored: unknown[]) {
+  const storedById = new Map(stored.map((item) => [(item as { id?: unknown }).id, item]));
+  return items.map((item) => ({ ...withDefaultMetadata(item), ...readPersistedVocabMetadata(storedById.get(item.id)) }));
+}
+
+function mapVocabularyRow(row: VocabularyRow): VocabItem | null {
+  const targetLanguage = row.target_language === "ja" ? "Japanese" : row.target_language === "ko" ? "Korean" : null;
+  const level = row.level === "basic" ? "Basic" : row.level === "intermediate" ? "Intermediate" : row.level === "advanced" ? "Advanced" : null;
+  if (!targetLanguage || !level || !topics.includes(row.topic as Topic)) return null;
+
+  return {
+    id: row.id,
+    targetLanguage,
+    targetText: row.target_text,
+    meanings: { English: row.meaning_en, "Simplified Chinese": row.meaning_zh_cn || row.meaning_en },
+    reading: row.reading || row.target_text,
+    romanization: row.romanization || "",
+    level,
+    topic: row.topic as Topic,
+    exampleSentence: row.example_text || row.target_text,
+    exampleTranslations: {
+      English: row.example_translation_en || row.meaning_en,
+      "Simplified Chinese": row.example_translation_zh_cn || row.meaning_zh_cn || row.meaning_en,
+    },
+  };
+}
+
+async function fetchRemoteVocabulary() {
+  const rows: VocabularyRow[] = [];
+  for (let from = 0; ; from += remoteVocabularyPageSize) {
+    const { data, error } = await supabase
+      .from("vocabulary")
+      .select(
+        "id,target_language,level,topic,target_text,reading,romanization,meaning_en,meaning_zh_cn,example_text,example_translation_en,example_translation_zh_cn"
+      )
+      .range(from, from + remoteVocabularyPageSize - 1);
+    if (error) throw error;
+    rows.push(...((data || []) as VocabularyRow[]));
+    if (!data || data.length < remoteVocabularyPageSize) break;
+  }
+  return rows.map(mapVocabularyRow).filter(Boolean) as VocabItem[];
+}
+
+function voiceMatchesStyle(voice: SpeechSynthesisVoice, style: VoiceStyle) {
+  const name = voice.name.toLowerCase();
+  const hints = style === "Female" ? femaleVoiceHints : maleVoiceHints;
+  const genericMatch = style === "Female" ? /\b(female|woman)\b/.test(name) : /\b(male|man)\b/.test(name);
+  return genericMatch || hints.some((hint) => name.includes(hint));
+}
+
+function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: number, rateMultiplier: number, voiceStyle: VoiceStyle = "Auto") {
   return new Promise<void>((resolve) => {
     if (!("speechSynthesis" in window)) {
       globalThis.setTimeout(resolve, 900);
@@ -315,9 +394,7 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
           ? "ko-KR"
           : lang === "Simplified Chinese"
             ? "zh-CN"
-            : lang === "Traditional Chinese"
-              ? "zh-TW"
-              : "en-US";
+            : "en-US";
     utterance.lang = speechLang;
     utterance.rate = (lang === "English" ? 0.78 : 0.72) * rateMultiplier;
     utterance.pitch = 0.84;
@@ -329,9 +406,13 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
     const speakWithBestVoice = (voices: SpeechSynthesisVoice[]) => {
       if (spoken) return;
       spoken = true;
+      const languageVoices = voices.filter(
+        (voice) => voice.lang === speechLang || voice.lang.toLowerCase().startsWith(speechLang.slice(0, 2).toLowerCase())
+      );
       utterance.voice =
-        voices.find((voice) => voice.lang === speechLang) ||
-        voices.find((voice) => voice.lang.toLowerCase().startsWith(speechLang.slice(0, 2).toLowerCase())) ||
+        (voiceStyle !== "Auto" ? languageVoices.find((voice) => voiceMatchesStyle(voice, voiceStyle)) : undefined) ||
+        languageVoices.find((voice) => voice.lang === speechLang) ||
+        languageVoices[0] ||
         null;
       synth.speak(utterance);
     };
@@ -472,9 +553,7 @@ function App() {
   const configRef = useRef(config);
   const [vocab, setVocab] = useState<VocabItem[]>(() => {
     const stored = loadJson<unknown>("lingosleep-vocab", null);
-    if (!Array.isArray(stored)) return vocabSeed.map(withDefaultMetadata);
-    const storedById = new Map(stored.map((item) => [item.id, item]));
-    return vocabSeed.map((item) => ({ ...withDefaultMetadata(item), ...readPersistedVocabMetadata(storedById.get(item.id)) }));
+    return mergeVocabMetadata(vocabSeed, Array.isArray(stored) ? stored : []);
   });
   const [history, setHistory] = useState<SessionRecord[]>(() => loadJson("lingosleep-history", []));
   const [playlistPositions, setPlaylistPositions] = useState<Record<string, number>>(() => loadJson("lingosleep-playlist-positions", {}));
@@ -516,7 +595,19 @@ function App() {
   useEffect(() => localStorage.setItem("lingosleep-history", JSON.stringify(history)), [history]);
   useEffect(() => localStorage.setItem("lingosleep-playlist-positions", JSON.stringify(playlistPositions)), [playlistPositions]);
   useEffect(() => {
-    void supabase.auth.getSession();
+    void supabase.auth.getSession().then(({ error }) => {
+      if (error) console.warn("Supabase auth session check failed", error);
+    });
+    if (import.meta.env.VITE_SUPABASE_URL === "https://example.supabase.co") return;
+    void fetchRemoteVocabulary()
+      .then((remoteVocab) => {
+        if (remoteVocab.length) {
+          setVocab((current) => mergeVocabMetadata(remoteVocab, current));
+        }
+      })
+      .catch((error) => {
+        console.warn("Supabase vocabulary load failed; using bundled vocabulary", error);
+      });
   }, []);
 
   const playlist = useMemo(() => buildPlaylist(vocab, config), [vocab, config]);
@@ -633,7 +724,8 @@ function App() {
       if (playedAudio) return true;
     }
     const rate = lang === configRef.current.targetLanguage ? configRef.current.targetVoiceRate : configRef.current.nativeVoiceRate;
-    await speak(text, lang, volume, rate);
+    const voiceStyle = lang === configRef.current.targetLanguage ? "Auto" : configRef.current.nativeVoiceStyle;
+    await speak(text, lang, volume, rate, voiceStyle);
     return isSessionActive(sessionToken);
   };
 
@@ -841,6 +933,13 @@ function App() {
               step={0.1}
               valueText={`${config.nativeVoiceRate.toFixed(1)}x`}
               onChange={(value) => updateConfig("nativeVoiceRate", value)}
+            />
+            <span className="segmented-label">{t("Native voice style")}</span>
+            <Segmented
+              options={voiceStyles}
+              value={config.nativeVoiceStyle}
+              labelFor={label}
+              onChange={(value) => updateConfig("nativeVoiceStyle", value as VoiceStyle)}
             />
           </ControlGroup>
           <ControlGroup title={t("Level")}>
@@ -1095,12 +1194,24 @@ function App() {
 }
 
 function buildPlaylist(vocab: VocabItem[], config: SessionConfig) {
-  return vocab.filter(
-    (item) =>
-      item.targetLanguage === config.targetLanguage &&
-      item.level === config.level &&
-      (config.topic === allTopics || item.topic === config.topic)
-  );
+  const languageItems = vocab.filter((item) => item.targetLanguage === config.targetLanguage);
+  const levelItems = languageItems.filter((item) => item.level === config.level);
+  const topicItems = config.topic === allTopics ? levelItems : levelItems.filter((item) => item.topic === config.topic);
+  const backupItems =
+    config.topic === allTopics ? languageItems : [...languageItems.filter((item) => item.topic === config.topic), ...levelItems, ...languageItems];
+  return takeUnique([...topicItems, ...backupItems], playlistBucketSize);
+}
+
+function takeUnique(items: VocabItem[], limit: number) {
+  const seen = new Set<string>();
+  const selected: VocabItem[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    selected.push(item);
+    if (selected.length === limit) break;
+  }
+  return selected;
 }
 
 function getPlaylistKey(config: Pick<SessionConfig, "targetLanguage" | "level" | "topic">) {

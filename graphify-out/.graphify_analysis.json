@@ -1,0 +1,277 @@
+{
+  "communities": {
+    "0": [
+      "ref_dom",
+      "ref_dom_iterable",
+      "ref_es2020",
+      "ref_src",
+      "tsconfig",
+      "tsconfig_compileroptions",
+      "tsconfig_compileroptions_allowjs",
+      "tsconfig_compileroptions_allowsyntheticdefaultimports",
+      "tsconfig_compileroptions_esmoduleinterop",
+      "tsconfig_compileroptions_forceconsistentcasinginfilenames",
+      "tsconfig_compileroptions_isolatedmodules",
+      "tsconfig_compileroptions_jsx",
+      "tsconfig_compileroptions_lib",
+      "tsconfig_compileroptions_module",
+      "tsconfig_compileroptions_moduleresolution",
+      "tsconfig_compileroptions_noemit",
+      "tsconfig_compileroptions_resolvejsonmodule",
+      "tsconfig_compileroptions_skiplibcheck",
+      "tsconfig_compileroptions_strict",
+      "tsconfig_compileroptions_target",
+      "tsconfig_compileroptions_usedefineforclassfields",
+      "tsconfig_include",
+      "tsconfig_references"
+    ],
+    "1": [
+      "src_main",
+      "src_main_backgroundsound",
+      "src_main_backgroundsounds",
+      "src_main_controlgroup",
+      "src_main_defaultconfig",
+      "src_main_durations",
+      "src_main_emptystate",
+      "src_main_familiarityvalues",
+      "src_main_levels",
+      "src_main_modes",
+      "src_main_nativelanguages",
+      "src_main_notice",
+      "src_main_persistedvocabmetadata",
+      "src_main_playbackmode",
+      "src_main_quizscreen",
+      "src_main_rainsoundurls",
+      "src_main_rangecontrol",
+      "src_main_segmented",
+      "src_main_sessionconfig",
+      "src_main_sessionrecord",
+      "src_main_timerpicker",
+      "src_main_topics",
+      "src_main_wordrow"
+    ],
+    "2": [
+      "tests_e2e_audio_lifecycle_spec",
+      "tests_e2e_audio_lifecycle_spec_fakeaudiocontext",
+      "tests_e2e_audio_lifecycle_spec_fakeaudiocontext_close",
+      "tests_e2e_audio_lifecycle_spec_fakeaudiocontext_createbuffer",
+      "tests_e2e_audio_lifecycle_spec_fakeaudiocontext_createbuffersource",
+      "tests_e2e_audio_lifecycle_spec_fakeaudiocontext_creategain",
+      "tests_e2e_audio_lifecycle_spec_fakeaudiocontext_decodeaudiodata",
+      "tests_e2e_audio_lifecycle_spec_fakeaudioparam",
+      "tests_e2e_audio_lifecycle_spec_fakeaudioparam_cancelscheduledvalues",
+      "tests_e2e_audio_lifecycle_spec_fakeaudioparam_linearramptovalueattime",
+      "tests_e2e_audio_lifecycle_spec_fakeaudioparam_value",
+      "tests_e2e_audio_lifecycle_spec_fakebuffersource",
+      "tests_e2e_audio_lifecycle_spec_fakebuffersource_connect",
+      "tests_e2e_audio_lifecycle_spec_fakebuffersource_start",
+      "tests_e2e_audio_lifecycle_spec_fakebuffersource_stop",
+      "tests_e2e_audio_lifecycle_spec_fakegainnode",
+      "tests_e2e_audio_lifecycle_spec_fakegainnode_connect",
+      "tests_e2e_audio_lifecycle_spec_fakemediaaudio",
+      "tests_e2e_audio_lifecycle_spec_fakespeechsynthesisutterance",
+      "tests_e2e_audio_lifecycle_spec_fakespeechsynthesisutterance_constructor",
+      "tests_e2e_audio_lifecycle_spec_prepareaudioharness",
+      "tests_e2e_audio_lifecycle_spec_sessionconfig",
+      "tests_e2e_audio_lifecycle_spec_window"
+    ],
+    "3": [
+      "lucide_react",
+      "package_dependencies",
+      "package_dependencies_lucide_react",
+      "package_dependencies_react",
+      "package_dependencies_react_dom",
+      "package_dependencies_supabase_supabase_js",
+      "package_dependencies_vite",
+      "package_dependencies_vitejs_plugin_react",
+      "react",
+      "react_dom",
+      "supabase_supabase_js",
+      "vite",
+      "vitejs_plugin_react"
+    ],
+    "4": [
+      "package",
+      "package_engines",
+      "package_engines_node",
+      "package_name",
+      "package_private",
+      "package_scripts",
+      "package_scripts_build",
+      "package_scripts_dev",
+      "package_scripts_e2e",
+      "package_scripts_preview",
+      "package_type",
+      "package_version"
+    ],
+    "5": [
+      "package_devdependencies",
+      "package_devdependencies_playwright_test",
+      "package_devdependencies_types_react",
+      "package_devdependencies_types_react_dom",
+      "package_devdependencies_typescript",
+      "playwright_test",
+      "types_react",
+      "types_react_dom",
+      "typescript"
+    ],
+    "6": [
+      "src_main_app",
+      "src_main_formattime",
+      "src_main_loadjson",
+      "src_main_nextstatus",
+      "src_main_normalizeconfig",
+      "src_main_readpersistedvocabmetadata",
+      "src_main_speak",
+      "src_main_wait",
+      "src_main_withdefaultmetadata"
+    ],
+    "7": [
+      "src_vocabulary",
+      "src_vocabulary_familiarity",
+      "src_vocabulary_level",
+      "src_vocabulary_nativelanguage",
+      "src_vocabulary_targetlanguage",
+      "src_vocabulary_topic",
+      "src_vocabulary_vocabitem",
+      "src_vocabulary_vocabseed"
+    ],
+    "8": [
+      "tests_e2e_playback_persistence_spec",
+      "tests_e2e_playback_persistence_spec_cases",
+      "tests_e2e_playback_persistence_spec_corruptioncase",
+      "tests_e2e_playback_persistence_spec_fakespeechsynthesisutterance",
+      "tests_e2e_playback_persistence_spec_fakespeechsynthesisutterance_constructor",
+      "tests_e2e_playback_persistence_spec_targetlanguage",
+      "tests_e2e_playback_persistence_spec_window"
+    ],
+    "9": [
+      "public_public_sw",
+      "public_public_sw_assets"
+    ],
+    "10": [
+      "src_lib_supabase",
+      "src_lib_supabase_supabase"
+    ],
+    "11": [
+      "src_main_buildplaylist",
+      "src_main_statusweight"
+    ],
+    "12": [
+      "src_main_createnoisesource",
+      "src_main_usebackgroundsound"
+    ],
+    "13": [
+      "tests_e2e_service_worker_strategy_spec",
+      "tests_e2e_service_worker_strategy_spec_serviceworkerpath"
+    ],
+    "14": [
+      "playwright_config"
+    ],
+    "15": [
+      "src_vite_env_d"
+    ],
+    "16": [
+      "vite_config"
+    ]
+  },
+  "cohesion": {
+    "0": 0.08695652173913043,
+    "1": 0.08695652173913043,
+    "2": 0.08695652173913043,
+    "3": 0.15384615384615385,
+    "4": 0.16666666666666666,
+    "5": 0.2222222222222222,
+    "6": 0.2222222222222222,
+    "7": 0.25,
+    "8": 0.2857142857142857,
+    "9": 1.0,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0,
+    "14": 1.0,
+    "15": 1.0,
+    "16": 1.0
+  },
+  "gods": [
+    {
+      "id": "tsconfig_compileroptions",
+      "label": "compilerOptions",
+      "degree": 16
+    },
+    {
+      "id": "src_main_app",
+      "label": "App()",
+      "degree": 12
+    },
+    {
+      "id": "tests_e2e_audio_lifecycle_spec_fakeaudiocontext",
+      "label": "FakeAudioContext",
+      "degree": 6
+    },
+    {
+      "id": "package_scripts",
+      "label": "scripts",
+      "degree": 5
+    },
+    {
+      "id": "tsconfig_compileroptions_lib",
+      "label": "lib",
+      "degree": 4
+    },
+    {
+      "id": "tests_e2e_audio_lifecycle_spec_fakeaudioparam",
+      "label": "FakeAudioParam",
+      "degree": 4
+    },
+    {
+      "id": "tests_e2e_audio_lifecycle_spec_fakebuffersource",
+      "label": "FakeBufferSource",
+      "degree": 4
+    },
+    {
+      "id": "src_main_usebackgroundsound",
+      "label": "useBackgroundSound()",
+      "degree": 3
+    },
+    {
+      "id": "src_main_buildplaylist",
+      "label": "buildPlaylist()",
+      "degree": 3
+    },
+    {
+      "id": "tsconfig_include",
+      "label": "include",
+      "degree": 2
+    }
+  ],
+  "surprises": [
+    {
+      "source": "App()",
+      "target": "useBackgroundSound()",
+      "source_files": [
+        "src/main.tsx",
+        "src/main.tsx"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "note": "Bridges community 12 \u2192 community 6"
+    },
+    {
+      "source": "App()",
+      "target": "buildPlaylist()",
+      "source_files": [
+        "src/main.tsx",
+        "src/main.tsx"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "note": "Bridges community 6 \u2192 community 11"
+    }
+  ],
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}
