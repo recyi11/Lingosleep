@@ -46,6 +46,14 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment and environment details.
 
 ## Graphify
 
+Current code graph summary:
+
+- `src/main.tsx` is the main application entry. `App()` coordinates setup, session state, playlist building, speech playback, background audio, progress, and quiz flow.
+- Vocabulary starts from bundled data in `src/vocabulary.ts` and split level files, then `fetchRemoteVocabulary()` and `mergeVocabMetadata()` combine Supabase rows with local metadata.
+- Audio behavior centers on `speak()`, `useBackgroundSound()`, and `createNoiseSource()`, with e2e coverage for playback lifecycle and persistence.
+- Supabase browser access is isolated in `src/lib/supabase.ts`; migrations include vocabulary bucket backfill and intermediate vocabulary refresh helpers.
+- Project health checks live in Playwright specs under `tests/e2e`, including audio lifecycle, playback persistence, playlist buckets, and service worker strategy.
+
 ![LingoSleep code graph](graphify-out/graph.svg)
 
-Open `graphify-out/graph.html` for the interactive view.
+Open `graphify-out/graph.html` for the interactive view. Last Graphify run: 191 nodes, 210 edges, 23 communities; no import cycles detected.

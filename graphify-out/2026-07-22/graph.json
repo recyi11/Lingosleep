@@ -2066,10 +2066,9 @@
       "source_file": "supabase/migrations/20260722003000_backfill_vocabulary_buckets_to_150.sql",
       "source_location": null,
       "_origin": "ast",
-      "community": 17,
-      "norm_label": "20260722003000_backfill_vocabulary_buckets_to_150.sql",
       "id": "supabase_migrations_20260722003000_backfill_vocabulary_buckets_to_150",
-      "community_name": "20260722003000_backfill_vocabulary_buckets_to_150.sql"
+      "community": 17,
+      "norm_label": "20260722003000_backfill_vocabulary_buckets_to_150.sql"
     },
     {
       "label": "public.backfill_vocabulary_bucket_to_150()",
@@ -2077,10 +2076,9 @@
       "source_file": "supabase/migrations/20260722003000_backfill_vocabulary_buckets_to_150.sql",
       "source_location": "L2",
       "_origin": "ast",
-      "community": 17,
-      "norm_label": "public.backfill_vocabulary_bucket_to_150()",
       "id": "supabase_migrations_20260722003000_backfill_vocabulary_buckets_to_150_public_backfill_vocabulary_bucket_to_150",
-      "community_name": "20260722003000_backfill_vocabulary_buckets_to_150.sql"
+      "community": 17,
+      "norm_label": "public.backfill_vocabulary_bucket_to_150()"
     },
     {
       "label": "20260722004000_raise_intermediate_generated_vocabulary.sql",
@@ -2088,10 +2086,9 @@
       "source_file": "supabase/migrations/20260722004000_raise_intermediate_generated_vocabulary.sql",
       "source_location": null,
       "_origin": "ast",
-      "community": 18,
-      "norm_label": "20260722004000_raise_intermediate_generated_vocabulary.sql",
       "id": "supabase_migrations_20260722004000_raise_intermediate_generated_vocabulary",
-      "community_name": "20260722004000_raise_intermediate_generated_vocabulary.sql"
+      "community": 18,
+      "norm_label": "20260722004000_raise_intermediate_generated_vocabulary.sql"
     },
     {
       "label": "public.revise_vocabulary_bucket_range()",
@@ -2099,10 +2096,9 @@
       "source_file": "supabase/migrations/20260722004000_raise_intermediate_generated_vocabulary.sql",
       "source_location": "L2",
       "_origin": "ast",
-      "community": 18,
-      "norm_label": "public.revise_vocabulary_bucket_range()",
       "id": "supabase_migrations_20260722004000_raise_intermediate_generated_vocabulary_public_revise_vocabulary_bucket_range",
-      "community_name": "20260722004000_raise_intermediate_generated_vocabulary.sql"
+      "community": 18,
+      "norm_label": "public.revise_vocabulary_bucket_range()"
     }
   ],
   "links": [
@@ -4453,9 +4449,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "supabase_migrations_20260722003000_backfill_vocabulary_buckets_to_150",
-      "target": "supabase_migrations_20260722003000_backfill_vocabulary_buckets_to_150_public_backfill_vocabulary_bucket_to_150"
+      "target": "supabase_migrations_20260722003000_backfill_vocabulary_buckets_to_150_public_backfill_vocabulary_bucket_to_150",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -4464,9 +4460,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "supabase_migrations_20260722004000_raise_intermediate_generated_vocabulary",
-      "target": "supabase_migrations_20260722004000_raise_intermediate_generated_vocabulary_public_revise_vocabulary_bucket_range"
+      "target": "supabase_migrations_20260722004000_raise_intermediate_generated_vocabulary_public_revise_vocabulary_bucket_range",
+      "confidence_score": 1.0
     }
   ],
   "hyperedges": [],

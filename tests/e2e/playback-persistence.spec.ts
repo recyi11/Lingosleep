@@ -4,10 +4,13 @@ import type { Page } from "@playwright/test";
 declare global {
   interface Window {
     __spoken: string[];
+    __spokenVoices?: Array<string | null>;
+    __audioAttempts?: number;
   }
 }
 
 type TargetLanguage = "Japanese" | "Korean";
+type VoiceStyle = "Female" | "Male";
 
 const startSession = (page: Page) =>
   page.getByRole("button", {
@@ -38,7 +41,7 @@ const cases: CorruptionCase[] = [
     corruptedId: "ja-food-basic-1",
     corruptedText: "寝る",
     corruptedReading: "ねる",
-    expectedSpeech: ["meal", "ご飯", "ごはん"],
+    expectedSpeech: ["meal", "ごはん", "ごはん"],
   },
 ];
 
@@ -87,6 +90,23 @@ for (const testCase of cases) {
 
       window.__spoken = [];
 
+      class FakeAudio {
+        onended: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        onpause: (() => void) | null = null;
+        volume = 1;
+        playbackRate = 1;
+
+        play() {
+          this.onerror?.();
+          return Promise.reject(new Error("target audio unavailable"));
+        }
+
+        pause() {
+          this.onpause?.();
+        }
+      }
+
       class FakeSpeechSynthesisUtterance {
         text: string;
         lang = "";
@@ -101,6 +121,16 @@ for (const testCase of cases) {
         }
       }
 
+      const voices = [
+        { lang: "ja-JP", name: "Kyoko Female" },
+        { lang: "ko-KR", name: "Yuna Female" },
+        { lang: "en-US", name: "Samantha Female" },
+      ];
+
+      Object.defineProperty(window, "Audio", {
+        configurable: true,
+        value: FakeAudio,
+      });
       Object.defineProperty(window, "SpeechSynthesisUtterance", {
         configurable: true,
         value: FakeSpeechSynthesisUtterance,
@@ -110,6 +140,7 @@ for (const testCase of cases) {
         configurable: true,
         value: {
           cancel: () => undefined,
+          getVoices: () => voices,
           speak: (utterance: FakeSpeechSynthesisUtterance) => {
             window.__spoken.push(utterance.text);
             window.setTimeout(() => utterance.onend?.(), 0);
@@ -126,5 +157,171 @@ for (const testCase of cases) {
     const spoken = await page.evaluate(() => window.__spoken.slice(0, 3));
     expect(spoken).not.toContain(testCase.corruptedText);
     expect(spoken[0]).not.toBe("");
+  });
+}
+
+test("bundled vocabulary wins over stale remote duplicate fields", async ({ page }) => {
+  await page.route("**/rest/v1/vocabulary**", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "content-range": "0-0/1",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify([
+        {
+          id: "ja-food-basic-1",
+          target_language: "ja",
+          level: "basic",
+          topic: "food",
+          target_text: "ご飯",
+          reading: "ごはん",
+          romanization: "gohan",
+          meaning_en: "meal",
+          meaning_zh_cn: "米饭；餐",
+          example_text: "朝ご飯を食べます。",
+          example_translation_en: "I eat breakfast.",
+          example_translation_zh_cn: "我吃早饭。",
+        },
+      ]),
+    })
+  );
+  await page.addInitScript(() => {
+    window.localStorage.setItem("lingosleep-onboarded", "true");
+    window.localStorage.setItem(
+      "lingosleep-config",
+      JSON.stringify({
+        targetLanguage: "Japanese",
+        nativeLanguage: "Simplified Chinese",
+        level: "Basic",
+        topic: "food",
+        mode: "Recall mode",
+        languageMinutes: 10,
+        backgroundMinutes: 10,
+        backgroundSound: "none",
+        playbackOrder: "Start from beginning",
+        voiceVolume: 0.72,
+        nativeVoiceVolume: 0.95,
+        targetVoiceRate: 1,
+        nativeVoiceRate: 1,
+        backgroundVolume: 0,
+      })
+    );
+  });
+
+  await page.goto("/");
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const vocab = JSON.parse(window.localStorage.getItem("lingosleep-vocab") || "[]");
+        return vocab.find((item: { id: string; meanings: Record<string, string> }) => item.id === "ja-food-basic-1")?.meanings[
+          "Simplified Chinese"
+        ];
+      })
+    )
+    .toBe("饭");
+});
+
+for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
+  test(`target-language repeats use the selected ${voiceStyle.toLowerCase()} voice`, async ({ page }) => {
+    await page.addInitScript(({ voiceStyle }) => {
+      const nativeVoiceStyle = voiceStyle === "Female" ? "Male" : "Female";
+      window.localStorage.setItem("lingosleep-onboarded", "true");
+      window.localStorage.setItem(
+        "lingosleep-config",
+        JSON.stringify({
+          targetLanguage: "Japanese",
+          nativeLanguage: "English",
+          level: "Basic",
+          topic: "food",
+          mode: "Native word -> target word -> target word",
+          languageMinutes: 10,
+          backgroundMinutes: 10,
+          backgroundSound: "none",
+          playbackOrder: "Start from beginning",
+          voiceVolume: 0.72,
+          nativeVoiceVolume: 0.95,
+          targetVoiceStyle: voiceStyle,
+          nativeVoiceStyle,
+          targetVoiceRate: 1,
+          nativeVoiceRate: 1,
+          targetDelaySeconds: 0,
+          backgroundVolume: 0,
+        })
+      );
+
+      window.__spoken = [];
+      window.__spokenVoices = [];
+      window.__audioAttempts = 0;
+
+      class FakeAudio {
+        onended: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        onpause: (() => void) | null = null;
+        volume = 1;
+        playbackRate = 1;
+
+        constructor() {
+          window.__audioAttempts = (window.__audioAttempts ?? 0) + 1;
+        }
+
+        pause() {
+          this.onpause?.();
+        }
+      }
+
+      class FakeSpeechSynthesisUtterance {
+        text: string;
+        lang = "";
+        voice: { lang: string; name: string } | null = null;
+        rate = 1;
+        pitch = 1;
+        volume = 1;
+        onend: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        constructor(text: string) {
+          this.text = text;
+        }
+      }
+
+      const voices = [
+        { lang: "ja-JP", name: "Kyoko Female" },
+        { lang: "ja-JP", name: "Otoya Male" },
+        { lang: "en-US", name: "Samantha Female" },
+        { lang: "en-US", name: "Daniel Male" },
+      ];
+
+      Object.defineProperty(window, "Audio", {
+        configurable: true,
+        value: FakeAudio,
+      });
+      Object.defineProperty(window, "SpeechSynthesisUtterance", {
+        configurable: true,
+        value: FakeSpeechSynthesisUtterance,
+      });
+      Object.defineProperty(window, "speechSynthesis", {
+        configurable: true,
+        value: {
+          cancel: () => undefined,
+          getVoices: () => voices,
+          speak: (utterance: FakeSpeechSynthesisUtterance) => {
+            window.__spoken.push(utterance.text);
+            window.__spokenVoices?.push(utterance.voice?.name ?? null);
+            window.setTimeout(() => utterance.onend?.(), 0);
+          },
+        },
+      });
+    }, { voiceStyle });
+
+    await page.goto("/");
+    await startSession(page);
+
+    await expect.poll(() => page.evaluate(() => window.__spoken.slice(0, 3))).toEqual(["meal", "ごはん", "ごはん"]);
+
+    const expectedVoice = voiceStyle === "Female" ? "Kyoko Female" : "Otoya Male";
+    await expect.poll(() => page.evaluate(() => window.__spokenVoices?.slice(1, 3))).toEqual([expectedVoice, expectedVoice]);
+    expect(await page.evaluate(() => window.__audioAttempts)).toBe(0);
   });
 }

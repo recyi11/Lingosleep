@@ -325,7 +325,7 @@
       ],
       "confidence": "EXTRACTED",
       "relation": "calls",
-      "note": "Bridges community 11 → community 8"
+      "note": "Bridges community 11 \u2192 community 8"
     },
     {
       "source": "App()",
@@ -336,7 +336,7 @@
       ],
       "confidence": "EXTRACTED",
       "relation": "calls",
-      "note": "Bridges community 15 → community 8"
+      "note": "Bridges community 15 \u2192 community 8"
     },
     {
       "source": "App()",
@@ -347,7 +347,7 @@
       ],
       "confidence": "EXTRACTED",
       "relation": "calls",
-      "note": "Bridges community 16 → community 8"
+      "note": "Bridges community 16 \u2192 community 8"
     },
     {
       "source": "App()",
@@ -358,34 +358,11 @@
       ],
       "confidence": "EXTRACTED",
       "relation": "calls",
-      "note": "Bridges community 14 → community 8"
+      "note": "Bridges community 14 \u2192 community 8"
     }
   ],
-  "questions": [
-    {
-      "type": "bridge_node",
-      "question": "Why does `App()` connect `App` to `main.tsx`, `audio-lifecycle.spec.ts`, `mergeVocabMetadata`, `useBackgroundSound`, `fetchRemoteVocabulary`, `speak`?",
-      "why": "High betweenness centrality (0.097) - this node is a cross-community bridge."
-    },
-    {
-      "type": "isolated_nodes",
-      "question": "What connects `supabase`, `target`, `useDefineForClassFields` to the rest of the system?",
-      "why": "85 weakly-connected nodes found - possible documentation gaps or missing edges."
-    },
-    {
-      "type": "low_cohesion",
-      "question": "Should `main.tsx` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.0625 - nodes in this community are weakly interconnected."
-    },
-    {
-      "type": "low_cohesion",
-      "question": "Should `audio-lifecycle.spec.ts` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.07692307692307693 - nodes in this community are weakly interconnected."
-    },
-    {
-      "type": "low_cohesion",
-      "question": "Should `compilerOptions` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.08695652173913043 - nodes in this community are weakly interconnected."
-    }
-  ]
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
 }
