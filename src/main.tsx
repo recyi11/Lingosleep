@@ -84,6 +84,7 @@ type SessionRecord = {
 };
 
 const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese"];
+const japaneseVoiceBoost = 1.3;
 const koreanVoiceBoost = 1.3;
 const softRainBoost = 1.3;
 const playlistBucketSize = 70;
@@ -618,7 +619,7 @@ function App() {
     void fetchRemoteVocabulary()
       .then((remoteVocab) => {
         if (remoteVocab.length) {
-          setVocab((current) => mergeVocabMetadata(takeUnique([...remoteVocab, ...vocabSeed], Number.MAX_SAFE_INTEGER), current));
+          setVocab((current) => mergeVocabMetadata(takeUnique([...vocabSeed, ...remoteVocab], Number.MAX_SAFE_INTEGER), current));
         }
       })
       .catch((error) => {
@@ -703,7 +704,7 @@ function App() {
     const sessionConfig = config;
     const targetSpeechText = sessionConfig.targetLanguage === "Japanese" ? item.reading : item.targetText;
     const baseVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
-    const targetBoost = sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
+    const targetBoost = sessionConfig.targetLanguage === "Japanese" ? japaneseVoiceBoost : sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
     const voiceVolume = (multiplier = 1) => Math.min(1, baseVolume(multiplier) * targetBoost);
     const nativeVolume = (multiplier = 1) => Math.min(1, configRef.current.nativeVoiceVolume * multiplier);
     setCurrentItem(item);

@@ -160,6 +160,69 @@ for (const testCase of cases) {
   });
 }
 
+test("bundled vocabulary wins over stale remote duplicate fields", async ({ page }) => {
+  await page.route("**/rest/v1/vocabulary**", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "content-range": "0-0/1",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify([
+        {
+          id: "ja-food-basic-1",
+          target_language: "ja",
+          level: "basic",
+          topic: "food",
+          target_text: "ご飯",
+          reading: "ごはん",
+          romanization: "gohan",
+          meaning_en: "meal",
+          meaning_zh_cn: "米饭；餐",
+          example_text: "朝ご飯を食べます。",
+          example_translation_en: "I eat breakfast.",
+          example_translation_zh_cn: "我吃早饭。",
+        },
+      ]),
+    })
+  );
+  await page.addInitScript(() => {
+    window.localStorage.setItem("lingosleep-onboarded", "true");
+    window.localStorage.setItem(
+      "lingosleep-config",
+      JSON.stringify({
+        targetLanguage: "Japanese",
+        nativeLanguage: "Simplified Chinese",
+        level: "Basic",
+        topic: "food",
+        mode: "Recall mode",
+        languageMinutes: 10,
+        backgroundMinutes: 10,
+        backgroundSound: "none",
+        playbackOrder: "Start from beginning",
+        voiceVolume: 0.72,
+        nativeVoiceVolume: 0.95,
+        targetVoiceRate: 1,
+        nativeVoiceRate: 1,
+        backgroundVolume: 0,
+      })
+    );
+  });
+
+  await page.goto("/");
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const vocab = JSON.parse(window.localStorage.getItem("lingosleep-vocab") || "[]");
+        return vocab.find((item: { id: string; meanings: Record<string, string> }) => item.id === "ja-food-basic-1")?.meanings[
+          "Simplified Chinese"
+        ];
+      })
+    )
+    .toBe("饭");
+});
+
 for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
   test(`target-language repeats use the selected ${voiceStyle.toLowerCase()} voice`, async ({ page }) => {
     await page.addInitScript(({ voiceStyle }) => {

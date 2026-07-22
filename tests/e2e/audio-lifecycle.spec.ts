@@ -633,7 +633,7 @@ test("First speech waits for browser voices before speaking", async ({ page }) =
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.length)).toBe(1);
 });
 
-test("Japanese target speech uses selected voice volume without boost", async ({ page }) => {
+test("Japanese target speech gets Japanese-only volume boost", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
@@ -657,7 +657,7 @@ test("Japanese target speech uses selected voice volume without boost", async ({
     .toEqual(["饭", "ごはん"]);
 
   const targetSpeechVolume = await page.evaluate(() => window.__audio.spoken[1]?.volume);
-  expect(targetSpeechVolume).toBeCloseTo(0.31, 5);
+  expect(targetSpeechVolume).toBeCloseTo(0.31 * 1.3, 5);
   const targetSpeech = await page.evaluate(() => window.__audio.spoken[1]);
   expect(targetSpeech.lang).toBe("ja-JP");
   expect(targetSpeech.voice?.lang).toBe("ja-JP");
@@ -686,7 +686,7 @@ test("Word and example sentence mode keeps speech at selected voice volumes", as
     .toEqual(["ごはん", "饭", "朝ご飯を食べます。", "我吃早饭。"]);
 
   const volumes = await page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.volume));
-  expect(volumes).toEqual([0.46, 0.81 * 0.88, 0.46 * 0.84, 0.81 * 0.74]);
+  expect(volumes).toEqual([0.46 * 1.3, 0.81 * 0.88, 0.46 * 0.84 * 1.3, 0.81 * 0.74]);
 });
 
 test("Korean target speech gets Korean-only volume boost", async ({ page }) => {
