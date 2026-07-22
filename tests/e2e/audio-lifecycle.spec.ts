@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 declare global {
   interface Window {
@@ -12,6 +13,8 @@ declare global {
       decodedBuffers: number;
       cancelCount: number;
       now: number;
+      audioSessionTypes: string[];
+      voicesReady: boolean;
     };
   }
 }
@@ -116,6 +119,7 @@ class FakeAudioContext {
 class FakeSpeechSynthesisUtterance {
   text: string;
   lang = "";
+  voice: { lang: string; name: string } | null = null;
   rate = 1;
   pitch = 1;
   volume = 1;
@@ -138,14 +142,27 @@ const sessionConfig = {
   backgroundSound: "white noise",
   voiceVolume: 0.72,
   nativeVoiceVolume: 0.95,
+  nativeVoiceStyle: "Female",
   backgroundVolume: 0.34,
+};
+
+const startSession = (page: Page) =>
+  page.getByRole("button", {
+    name: /Start sleep session|Start session|Continue session|Start random session|开始复习|继续复习|开始随机复习/,
+  }).click();
+
+const slider = (page: Page, name: RegExp) => page.getByRole("slider", { name });
+
+type AudioHarnessOptions = {
+  voicesReady?: boolean;
 };
 
 async function prepareAudioHarness(
   page: Parameters<Parameters<typeof test>[1]>[0]["page"],
-  configOverrides: Partial<typeof sessionConfig> = {}
+  configOverrides: Partial<typeof sessionConfig> = {},
+  options: AudioHarnessOptions = {}
 ) {
-  await page.addInitScript(({ sessionConfig, configOverrides }) => {
+  await page.addInitScript(({ sessionConfig, configOverrides, options }) => {
     const testConfig = { ...sessionConfig, ...configOverrides };
     window.localStorage.setItem("lingosleep-onboarded", "true");
     window.localStorage.setItem("lingosleep-config", JSON.stringify(testConfig));
@@ -160,7 +177,23 @@ async function prepareAudioHarness(
       decodedBuffers: 0,
       cancelCount: 0,
       now: 1000,
+      audioSessionTypes: [],
+      voicesReady: options.voicesReady ?? true,
     };
+
+    let audioSessionType = "auto";
+    Object.defineProperty(window.navigator, "audioSession", {
+      configurable: true,
+      value: {
+        get type() {
+          return audioSessionType;
+        },
+        set type(value: string) {
+          audioSessionType = value;
+          window.__audio.audioSessionTypes.push(value);
+        },
+      },
+    });
 
     Object.defineProperty(Date, "now", {
       configurable: true,
@@ -285,6 +318,7 @@ async function prepareAudioHarness(
     class BrowserFakeSpeechSynthesisUtterance {
       text: string;
       lang = "";
+      voice: { lang: string; name: string } | null = null;
       rate = 1;
       pitch = 1;
       volume = 1;
@@ -326,25 +360,35 @@ async function prepareAudioHarness(
       configurable: true,
       value: BrowserFakeSpeechSynthesisUtterance,
     });
+    const voiceEvents = new EventTarget();
+    const voices = [
+      { lang: "ja-JP", name: "Kyoko" },
+      { lang: "en-US", name: "Samantha" },
+      { lang: "en-US", name: "Daniel" },
+    ];
     Object.defineProperty(window, "speechSynthesis", {
       configurable: true,
       value: {
         cancel: () => {
           window.__audio.cancelCount += 1;
         },
+        getVoices: () => (window.__audio.voicesReady ? voices : []),
         speak: (utterance: BrowserFakeSpeechSynthesisUtterance) => {
           window.__audio.spoken.push(utterance as unknown as FakeSpeechSynthesisUtterance);
         },
+        addEventListener: voiceEvents.addEventListener.bind(voiceEvents),
+        removeEventListener: voiceEvents.removeEventListener.bind(voiceEvents),
+        dispatchEvent: voiceEvents.dispatchEvent.bind(voiceEvents),
       },
     });
-  }, { sessionConfig, configOverrides });
+  }, { sessionConfig, configOverrides, options });
 }
 
 test("Soft rain background plays the soft rain audio asset", async ({ page }) => {
   await prepareAudioHarness(page, { backgroundSound: "soft rain" });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
 
   await expect.poll(() => page.evaluate(() => window.__audio.fetches[0] ?? "")).toContain("/audio/background/soft-rain.mp3");
   await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.assignedValues)).toEqual([sessionConfig.backgroundVolume * 1.3]);
@@ -362,7 +406,7 @@ test("Rain and Thunder background plays the Rain and Thunder audio asset", async
   await prepareAudioHarness(page, { backgroundSound: "Rain and Thunder" });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
 
   await expect.poll(() => page.evaluate(() => window.__audio.fetches[0] ?? "")).toContain("/audio/background/thunderstorm.mp3");
 });
@@ -371,7 +415,7 @@ test("Heavy rain background plays the heavy rain audio asset", async ({ page }) 
   await prepareAudioHarness(page, { backgroundSound: "heavy rain" });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
 
   await expect.poll(() => page.evaluate(() => window.__audio.fetches[0] ?? "")).toContain("/audio/background/heavy-rain.mp3");
 });
@@ -380,7 +424,7 @@ test("Stop tears down generated background audio and cancels speech", async ({ p
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
 
   await page.locator(".round-button").click();
@@ -394,8 +438,9 @@ test("Recall mode does not lower background volume for speech", async ({ page })
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["吃饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.audioSessionTypes)).toContain("ambient");
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
 
@@ -410,11 +455,24 @@ test("Recall mode does not lower background volume for speech", async ({ page })
   expect(rampTargetsThroughTarget).toEqual([]);
 });
 
+test("Pause slider controls native-to-target wait in Recall mode", async ({ page }) => {
+  await prepareAudioHarness(page, { pauseSeconds: 0.5 });
+  await page.goto("/");
+
+  await startSession(page);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["吃饭"]);
+
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
+  await page.waitForTimeout(600);
+
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["吃饭", "ご飯"]);
+});
+
 test("Stop during Recall-mode gap prevents target and reading playback", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
@@ -429,7 +487,7 @@ test("Restart after stopping during Recall-mode gap does not resume stale playba
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
@@ -451,7 +509,7 @@ test("Restart after stopping during fade-out does not let old session stop the n
   await prepareAudioHarness(page, { mode: "Target-language-only immersion" });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["ご飯"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
@@ -471,7 +529,7 @@ test("Restart after stopping during fade-out does not let old session stop the n
   await page.locator(".round-button").click();
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
-    .toEqual(["ご飯", "朝ご飯を食べます。", "Good night.", "ご飯"]);
+    .toEqual(["ご飯", "朝ご飯を食べます。", "Good night.", "水"]);
 
   await page.evaluate(() => window.__audio.spoken[2]?.onend?.());
   await page.waitForTimeout(800);
@@ -484,8 +542,8 @@ test("Background volume slider controls generated audio gain", async ({ page }) 
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByLabel("Background", { exact: true }).fill("0.12");
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await slider(page, /^(Background|背景音量)$/).fill("0.12");
+  await startSession(page);
 
   await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
   await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.assignedValues)).toEqual([0.12]);
@@ -496,12 +554,12 @@ test("Player exposes usable voice and background volume controls during active p
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
 
-  const voiceVolume = page.getByRole("slider", { name: "Target voice" });
-  const nativeVoiceVolume = page.getByRole("slider", { name: "Native voice" });
-  const backgroundVolume = page.getByRole("slider", { name: "Background" });
+  const voiceVolume = slider(page, /^(Target voice|目标语音量)$/);
+  const nativeVoiceVolume = slider(page, /^(Native voice|母语音量)$/);
+  const backgroundVolume = slider(page, /^(Background|背景音量)$/);
 
   await expect(voiceVolume).toBeVisible();
   await expect(nativeVoiceVolume).toBeVisible();
@@ -520,7 +578,7 @@ test("Player displays meaning with colon romanization", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
 
   await expect.poll(() => page.locator(".meaning").innerText({ timeoutMs: 1000 })).toBe("吃饭：gohan");
 });
@@ -529,37 +587,64 @@ test("Back to setup stops active playback so settings can be changed", async ({ 
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
 
-  await page.getByRole("button", { name: "Back to setup" }).click();
+  await page.getByRole("button", { name: /Back to setup|返回设置/ }).click();
 
   await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.stopCount ?? 0)).toBe(1);
-  await page.getByLabel("Background", { exact: true }).fill("0.12");
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await slider(page, /^(Background|背景音量)$/).fill("0.12");
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.sources[1]?.startCount ?? 0)).toBe(1);
 });
 
-test("Native language choices remove Traditional Chinese and normalize stale config", async ({ page }) => {
-  await prepareAudioHarness(page, { nativeLanguage: "Traditional Chinese" });
+test("Native language choices normalize stale config", async ({ page }) => {
+  await prepareAudioHarness(page, { nativeLanguage: "Legacy Chinese" });
   await page.goto("/");
 
-  await expect.poll(() => page.getByRole("button", { name: "Traditional Chinese" }).count()).toBe(0);
-  await expect.poll(() => page.getByRole("button", { name: "Simplified Chinese" }).getAttribute("class")).toBe("active");
+  await expect.poll(() => page.getByRole("button", { name: /Simplified Chinese|简体中文/ }).getAttribute("class")).toBe("active");
+});
+
+test("English native speech respects selected male voice style", async ({ page }) => {
+  await prepareAudioHarness(page, { nativeLanguage: "English", nativeVoiceStyle: "Male" });
+  await page.goto("/");
+
+  await startSession(page);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["meal"]);
+
+  const nativeSpeech = await page.evaluate(() => window.__audio.spoken[0]);
+  expect(nativeSpeech.lang).toBe("en-US");
+  expect(nativeSpeech.voice?.name).toBe("Daniel");
+});
+
+test("First speech waits for browser voices before speaking", async ({ page }) => {
+  await prepareAudioHarness(page, {}, { voicesReady: false });
+  await page.goto("/");
+
+  await startSession(page);
+  await page.waitForTimeout(80);
+  expect(await page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual([]);
+
+  await page.evaluate(() => {
+    window.__audio.voicesReady = true;
+    window.speechSynthesis.dispatchEvent(new Event("voiceschanged"));
+  });
+
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.length)).toBe(1);
 });
 
 test("Japanese target speech uses selected voice volume without boost", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["吃饭"]);
   const nativeSpeechVolume = await page.evaluate(() => window.__audio.spoken[0]?.volume);
   expect(nativeSpeechVolume).toBeCloseTo(sessionConfig.nativeVoiceVolume, 5);
 
-  await page.getByRole("slider", { name: "Target voice" }).fill("0.31");
-  await page.getByRole("slider", { name: "Native voice" }).fill("0.52");
-  await page.getByRole("slider", { name: "Background" }).fill("0.16");
+  await slider(page, /^(Target voice|目标语音量)$/).fill("0.31");
+  await slider(page, /^(Native voice|母语音量)$/).fill("0.52");
+  await slider(page, /^(Background|背景音量)$/).fill("0.16");
 
   await expect
     .poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.rampTargets.at(-1)))
@@ -573,13 +658,42 @@ test("Japanese target speech uses selected voice volume without boost", async ({
 
   const targetSpeechVolume = await page.evaluate(() => window.__audio.spoken[1]?.volume);
   expect(targetSpeechVolume).toBeCloseTo(0.31, 5);
+  const targetSpeech = await page.evaluate(() => window.__audio.spoken[1]);
+  expect(targetSpeech.lang).toBe("ja-JP");
+  expect(targetSpeech.voice?.lang).toBe("ja-JP");
+  expect(targetSpeech.rate).toBeCloseTo(0.88, 5);
+  expect(targetSpeech.pitch).toBe(1);
+});
+
+test("Word and example sentence mode keeps speech at selected voice volumes", async ({ page }) => {
+  await prepareAudioHarness(page, { mode: "Word and example sentence", voiceVolume: 0.46, nativeVoiceVolume: 0.81 });
+  await page.goto("/");
+
+  await startSession(page);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["ご飯"]);
+
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["ご飯", "吃饭"]);
+
+  await page.evaluate(() => window.__audio.spoken[1]?.onend?.());
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["ご飯", "吃饭", "朝ご飯を食べます。"]);
+
+  await page.evaluate(() => window.__audio.spoken[2]?.onend?.());
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["ご飯", "吃饭", "朝ご飯を食べます。", "我吃早饭。"]);
+
+  const volumes = await page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.volume));
+  expect(volumes).toEqual([0.46, 0.81, 0.46, 0.81]);
 });
 
 test("Korean target speech gets Korean-only volume boost", async ({ page }) => {
   await prepareAudioHarness(page, { targetLanguage: "Korean", voiceVolume: 0.4 });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start sleep session" }).click();
+  await startSession(page);
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
 
   await expect

@@ -43,3 +43,9 @@ npm run build
 - Backend services: Supabase Auth, PostgreSQL, Storage, and Row Level Security
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment and environment details.
+
+## Graphify
+
+![LingoSleep code graph](graphify-out/graph.svg)
+
+Open `graphify-out/graph.html` for the interactive view.

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 declare global {
   interface Window {
@@ -7,6 +8,11 @@ declare global {
 }
 
 type TargetLanguage = "Japanese" | "Korean";
+
+const startSession = (page: Page) =>
+  page.getByRole("button", {
+    name: /Start sleep session|Start session|Continue session|Start random session|开始复习|继续复习|开始随机复习/,
+  }).click();
 
 type CorruptionCase = {
   name: string;
@@ -24,7 +30,7 @@ const cases: CorruptionCase[] = [
     corruptedId: "ko-food-basic-1",
     corruptedText: "자다",
     corruptedReading: "자다",
-    expectedSpeech: ["rice; meal", "밥", "밥"],
+    expectedSpeech: ["rice", "밥", "밥"],
   },
   {
     name: "Japanese Food",
@@ -32,7 +38,7 @@ const cases: CorruptionCase[] = [
     corruptedId: "ja-food-basic-1",
     corruptedText: "寝る",
     corruptedReading: "ねる",
-    expectedSpeech: ["meal; cooked rice", "ご飯", "ごはん"],
+    expectedSpeech: ["meal", "ご飯", "ごはん"],
   },
 ];
 
@@ -60,7 +66,6 @@ for (const testCase of cases) {
         meanings: {
           English: "",
           "Simplified Chinese": "",
-          "Traditional Chinese": "",
         },
         reading: testCase.corruptedReading,
         romanization: "stale-sleep",
@@ -70,7 +75,6 @@ for (const testCase of cases) {
         exampleTranslations: {
           English: "",
           "Simplified Chinese": "",
-          "Traditional Chinese": "",
         },
         status: "New",
         favorite: false,
@@ -115,7 +119,7 @@ for (const testCase of cases) {
     }, { testCase });
 
     await page.goto("/");
-    await page.getByRole("button", { name: "Start sleep session" }).click();
+    await startSession(page);
 
     await expect.poll(() => page.evaluate(() => window.__spoken.slice(0, 3))).toEqual(testCase.expectedSpeech);
 
