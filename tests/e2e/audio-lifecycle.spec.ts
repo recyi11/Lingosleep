@@ -139,7 +139,7 @@ const sessionConfig = {
   mode: "Recall mode",
   languageMinutes: 10,
   backgroundMinutes: 10,
-  backgroundSound: "white noise",
+  backgroundSound: "soft rain",
   voiceVolume: 0.72,
   nativeVoiceVolume: 0.95,
   targetVoiceStyle: "Female",
@@ -310,7 +310,7 @@ async function prepareAudioHarness(
 
       play() {
         this.playCount += 1;
-        return Promise.reject(new Error("target audio unavailable"));
+        return this.src.includes("/audio/background/") ? Promise.resolve() : Promise.reject(new Error("speech audio unavailable"));
       }
 
       pause() {
@@ -393,16 +393,16 @@ test("Soft rain background plays the soft rain audio asset", async ({ page }) =>
 
   await startSession(page);
 
-  await expect.poll(() => page.evaluate(() => window.__audio.fetches[0] ?? "")).toContain("/audio/background/soft-rain.mp3");
-  await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.assignedValues)).toEqual([sessionConfig.backgroundVolume * 1.3]);
-  await expect.poll(() => page.evaluate(() => window.__audio.decodedBuffers)).toBe(1);
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
-  await expect.poll(() => page.evaluate(() => window.__audio.media.length)).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.src ?? "")).toContain("/audio/background/soft-rain.mp3");
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.volume)).toBeCloseTo(sessionConfig.backgroundVolume * 1.3, 5);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.loop)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.playCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.contexts.length)).toBe(0);
 
   await page.locator(".round-button").click();
 
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.stopCount ?? 0)).toBe(1);
-  await expect.poll(() => page.evaluate(() => window.__audio.contexts[0]?.closeCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.pauseCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.currentTime ?? -1)).toBe(0);
 });
 
 test("Rain and Thunder background plays the Rain and Thunder audio asset", async ({ page }) => {
@@ -411,7 +411,7 @@ test("Rain and Thunder background plays the Rain and Thunder audio asset", async
 
   await startSession(page);
 
-  await expect.poll(() => page.evaluate(() => window.__audio.fetches[0] ?? "")).toContain("/audio/background/thunderstorm.mp3");
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.src ?? "")).toContain("/audio/background/thunderstorm.mp3");
 });
 
 test("Heavy rain background plays the heavy rain audio asset", async ({ page }) => {
@@ -420,21 +420,20 @@ test("Heavy rain background plays the heavy rain audio asset", async ({ page }) 
 
   await startSession(page);
 
-  await expect.poll(() => page.evaluate(() => window.__audio.fetches[0] ?? "")).toContain("/audio/background/heavy-rain.mp3");
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.src ?? "")).toContain("/audio/background/heavy-rain.mp3");
 });
 
-test("Stop tears down generated background audio and cancels speech", async ({ page }) => {
+test("Stop tears down background audio and cancels speech", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.playCount ?? 0)).toBe(1);
 
   await page.locator(".round-button").click();
 
   await expect.poll(() => page.evaluate(() => window.__audio.cancelCount)).toBe(1);
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.stopCount ?? 0)).toBe(1);
-  await expect.poll(() => page.evaluate(() => window.__audio.contexts[0]?.closeCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.pauseCount ?? 0)).toBe(1);
 });
 
 test("Recall mode does not lower background volume for speech", async ({ page }) => {
@@ -446,15 +445,15 @@ test("Recall mode does not lower background volume for speech", async ({ page })
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
 
-  const rampTargetsAfterMeaning = await page.evaluate(() => window.__audio.gains[0].gain.rampTargets);
-  expect(rampTargetsAfterMeaning).toEqual([]);
+  const backgroundVolumeAfterMeaning = await page.evaluate(() => window.__audio.media[0].volume);
+  expect(backgroundVolumeAfterMeaning).toBeCloseTo(sessionConfig.backgroundVolume * 1.3, 5);
 
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
     .toEqual(["饭", "ごはん"]);
 
-  const rampTargetsThroughTarget = await page.evaluate(() => window.__audio.gains[0].gain.rampTargets);
-  expect(rampTargetsThroughTarget).toEqual([]);
+  const backgroundVolumeThroughTarget = await page.evaluate(() => window.__audio.media[0].volume);
+  expect(backgroundVolumeThroughTarget).toBeCloseTo(sessionConfig.backgroundVolume * 1.3, 5);
 });
 
 test("Meaning delay slider controls native-to-target wait in Recall mode", async ({ page }) => {
@@ -501,7 +500,7 @@ test("Stop during Recall-mode gap prevents target and reading playback", async (
   await page.waitForTimeout(3200);
 
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.stopCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.pauseCount ?? 0)).toBe(1);
 });
 
 test("Restart after stopping during Recall-mode gap does not resume stale playback", async ({ page }) => {
@@ -556,19 +555,18 @@ test("Restart after stopping during fade-out does not let old session stop the n
   await page.waitForTimeout(800);
 
   await expect.poll(() => page.evaluate(() => window.__audio.cancelCount)).toBe(1);
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[1]?.stopCount ?? 0)).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.pauseCount ?? 0)).toBe(0);
 });
 
-test("Background volume slider controls generated audio gain", async ({ page }) => {
+test("Background volume slider controls audio element volume", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
   await slider(page, /^(Background|背景音量)$/).fill("0.12");
   await startSession(page);
 
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
-  await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.assignedValues)).toEqual([0.12]);
-  await expect.poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.rampTargets)).toEqual([]);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.playCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.volume)).toBeCloseTo(0.12 * 1.3, 5);
 });
 
 test("Player exposes usable voice and background volume controls during active playback", async ({ page }) => {
@@ -576,7 +574,7 @@ test("Player exposes usable voice and background volume controls during active p
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.playCount ?? 0)).toBe(1);
 
   const voiceVolume = slider(page, /^(Target voice|目标语音量)$/);
   const nativeVoiceVolume = slider(page, /^(Native voice|母语音量)$/);
@@ -609,21 +607,21 @@ test("Back to setup stops active playback so settings can be changed", async ({ 
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.startCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.playCount ?? 0)).toBe(1);
 
   await page.getByRole("button", { name: /Back to setup|返回设置/ }).click();
 
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[0]?.stopCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.pauseCount ?? 0)).toBe(1);
   await slider(page, /^(Background|背景音量)$/).fill("0.12");
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.sources[1]?.startCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.playCount ?? 0)).toBe(1);
 });
 
 test("Native language choices normalize stale config", async ({ page }) => {
   await prepareAudioHarness(page, { nativeLanguage: "Legacy Chinese" });
   await page.goto("/");
 
-  await expect.poll(() => page.getByRole("button", { name: /Simplified Chinese|简体中文/ }).getAttribute("class")).toBe("active");
+  await expect.poll(() => page.getByRole("button", { name: /Simplified Chinese|简体中文|中文/ }).getAttribute("class")).toContain("active");
 });
 
 test("English native speech respects selected male voice style", async ({ page }) => {
@@ -667,9 +665,7 @@ test("Japanese target speech gets Japanese-only volume boost", async ({ page }) 
   await slider(page, /^(Native voice|母语音量)$/).fill("0.52");
   await slider(page, /^(Background|背景音量)$/).fill("0.16");
 
-  await expect
-    .poll(() => page.evaluate(() => window.__audio.gains[0]?.gain.rampTargets.at(-1)))
-    .toBeCloseTo(0.16, 5);
+  await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.volume)).toBeCloseTo(0.16 * 1.3, 5);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
 

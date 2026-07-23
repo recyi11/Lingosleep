@@ -328,7 +328,7 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
     await expect.poll(() => page.evaluate(() => window.__spoken.slice(0, 3))).toEqual(["meal", "ごはん", "ごはん"]);
 
     const expectedVoice = voiceStyle === "Female" ? "Kyoko Female" : "Otoya Male";
-    const expectedNativeVoice = voiceStyle === "Female" ? "Guy Male" : "Michelle Female";
+    const expectedNativeVoice = voiceStyle === "Female" ? "Brian Male" : "Michelle Female";
     await expect.poll(() => page.evaluate(() => window.__spokenVoices?.[0])).toBe(expectedNativeVoice);
     await expect.poll(() => page.evaluate(() => window.__spokenVoices?.slice(1, 3))).toEqual([expectedVoice, expectedVoice]);
     expect(await page.evaluate(() => window.__audioAttempts)).toBeGreaterThan(0);

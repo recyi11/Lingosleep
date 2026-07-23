@@ -37,7 +37,7 @@ type PlaybackMode =
   | "Recall mode"
   | "Word and example sentence"
   | "Target-language-only immersion";
-type BackgroundSound = "soft rain" | "heavy rain" | "Rain and Thunder" | "white noise" | "brown noise" | "fireplace" | "none";
+type BackgroundSound = "soft rain" | "heavy rain" | "Rain and Thunder" | "none";
 type PlaybackOrder = "Start from beginning" | "Start from last left" | "Random";
 type ReviewTopic = Topic | "all topics";
 type VoiceStyle = "Auto" | "Female" | "Male";
@@ -158,7 +158,7 @@ const modes: PlaybackMode[] = [
   "Target-language-only immersion",
 ];
 const durations = [10, 20, 30, 45, 60];
-const backgroundSounds: BackgroundSound[] = ["soft rain", "heavy rain", "Rain and Thunder", "white noise", "brown noise", "fireplace", "none"];
+const backgroundSounds: BackgroundSound[] = ["soft rain", "heavy rain", "Rain and Thunder", "none"];
 const playbackOrders: PlaybackOrder[] = ["Start from beginning", "Start from last left", "Random"];
 const rainSoundUrls: Partial<Record<BackgroundSound, string>> = {
   "soft rain": "/audio/background/soft-rain.mp3",
@@ -618,32 +618,8 @@ function nativeAudioSources(itemId: string, kind: "meaning" | "example", languag
   return audioSources(`native/${languagePath}/${fileName}`);
 }
 
-function createNoiseSource(ctx: AudioContext, sound: Exclude<BackgroundSound, "soft rain" | "heavy rain" | "Rain and Thunder" | "none">) {
-  const bufferSize = ctx.sampleRate * 2;
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  let last = 0;
-  for (let i = 0; i < bufferSize; i += 1) {
-    const white = Math.random() * 2 - 1;
-    if (sound === "brown noise") {
-      last = (last + 0.02 * white) / 1.02;
-      data[i] = last * 3.5;
-    } else if (sound === "fireplace") {
-      data[i] = Math.random() > 0.985 ? white * 0.9 : white * 0.08;
-    } else {
-      data[i] = white * 0.22;
-    }
-  }
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  source.loop = true;
-  return source;
-}
-
 function useBackgroundSound(sound: BackgroundSound, volume: number) {
-  const ctxRef = useRef<AudioContext | null>(null);
-  const gainRef = useRef<GainNode | null>(null);
-  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const volumeRef = useRef(volume);
 
   useEffect(() => {
@@ -653,73 +629,32 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
   const gainVolume = () => Math.min(1, volumeRef.current * (sound === "soft rain" ? softRainBoost : 1));
 
   const start = () => {
-    if (sound === "none" || sourceRef.current || ctxRef.current) return;
-    const ctx = new AudioContext();
-    const gain = ctx.createGain();
-    gain.gain.cancelScheduledValues(ctx.currentTime);
-    gain.gain.value = gainVolume();
-    ctxRef.current = ctx;
-    gainRef.current = gain;
-
-    if (sound === "soft rain" || sound === "heavy rain" || sound === "Rain and Thunder") {
-      const rainSoundUrl = rainSoundUrls[sound]!;
-      void fetch(rainSoundUrl)
-        .then((response) => response.arrayBuffer())
-        .then((data) => ctx.decodeAudioData(data))
-        .then((buffer) => {
-          if (ctxRef.current !== ctx) return;
-          const source = ctx.createBufferSource();
-          source.buffer = buffer;
-          source.loop = true;
-          source.connect(gain).connect(ctx.destination);
-          source.start();
-          sourceRef.current = source;
-        })
-        .catch(() => {
-          if (ctxRef.current !== ctx) return;
-          void ctx.close().catch(() => undefined);
-          ctxRef.current = null;
-          gainRef.current = null;
-        });
-      return;
-    }
-
-    const source = createNoiseSource(ctx, sound);
-    source.connect(gain).connect(ctx.destination);
-    source.start();
-    sourceRef.current = source;
+    if (sound === "none" || audioRef.current) return;
+    const audioSession = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (audioSession) audioSession.type = "playback";
+    const audio = new Audio(rainSoundUrls[sound]!);
+    audio.loop = true;
+    audio.preload = "auto";
+    audio.volume = gainVolume();
+    audioRef.current = audio;
+    void audio.play().catch(() => {
+      if (audioRef.current === audio) audioRef.current = null;
+    });
   };
 
   const stop = () => {
-    const source = sourceRef.current;
-    const ctx = ctxRef.current;
-    if (source) {
-      try {
-        source.stop();
-      } catch {
-        // Source may already be stopped by a timer or browser lifecycle event.
-      }
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
     }
-    if (ctx) {
-      const closed = ctx.close();
-      if (closed && "catch" in closed) {
-        void closed.catch(() => undefined);
-      }
-    }
-    sourceRef.current = null;
-    gainRef.current = null;
-    ctxRef.current = null;
+    audioRef.current = null;
   };
 
   const duck = (_active: boolean) => undefined;
 
   useEffect(() => {
-    const gain = gainRef.current;
-    const ctx = ctxRef.current;
-    if (gain && ctx) {
-      gain.gain.cancelScheduledValues(ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(gainVolume(), ctx.currentTime + 0.25);
-    }
+    if (audioRef.current) audioRef.current.volume = gainVolume();
   }, [volume, sound]);
 
   useEffect(() => stop, []);
@@ -972,6 +907,7 @@ function App() {
     setPlayedIds([]);
     playedIdsRef.current = [];
     background.start();
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
 
     const started = Date.now();
     const sessionPlaylist = config.playbackOrder === "Random" ? shuffle(playlist) : playlist;
@@ -1003,6 +939,7 @@ function App() {
     currentAudioRef.current?.pause();
     currentAudioRef.current = null;
     background.stop();
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     setIsPlaying(false);
     const savedPlayedIds = Array.from(new Set(playedIdsRef.current));
     if (save && savedPlayedIds.length) {
