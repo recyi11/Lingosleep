@@ -500,6 +500,20 @@ test("Speech gaps play silent audio so lock-screen playback can continue", async
   await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん"]);
 });
 
+test("Stalled silent gaps fall back instead of blocking playback", async ({ page }) => {
+  await prepareAudioHarness(page, { targetDelaySeconds: 0.05 });
+  await page.goto("/");
+
+  await startSession(page);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
+  await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.src ?? "")).toContain("blob:");
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)), { timeout: 3000 })
+    .toEqual(["饭", "ごはん"]);
+});
+
 test("Speech audio reuses one media element for lock-screen continuation", async ({ page }) => {
   await prepareAudioHarness(page, { targetDelaySeconds: 0 }, { speechAudioSucceeds: true });
   await page.goto("/");
@@ -512,6 +526,19 @@ test("Speech audio reuses one media element for lock-screen continuation", async
   await expect.poll(() => page.evaluate(() => window.__audio.media.length)).toBe(2);
   await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.playCount ?? 0)).toBe(2);
   await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.src ?? "")).toContain("/audio/target/ja-food-basic-1-word.mp3");
+});
+
+test("Stalled Web Speech fallback does not block playback forever", async ({ page }) => {
+  await prepareAudioHarness(page, { targetDelaySeconds: 0 });
+  await page.goto("/");
+
+  await startSession(page);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)), { timeout: 7000 })
+    .toEqual(["饭", "ごはん"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.cancelCount)).toBeGreaterThan(0);
 });
 
 test("Pause between words slider controls the wait before the next word", async ({ page }) => {

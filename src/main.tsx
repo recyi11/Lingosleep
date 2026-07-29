@@ -558,10 +558,30 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
     utterance.rate = (lang === "English" ? 0.78 : 0.72) * rateMultiplier;
     utterance.pitch = 0.84;
     utterance.volume = volume;
-    utterance.onend = () => resolve();
-    utterance.onerror = () => resolve();
 
     let spoken = false;
+    let finished = false;
+    let voicesTimer = 0;
+    let watchdogTimer = 0;
+    let handleVoicesChanged = () => undefined;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(voicesTimer);
+      window.clearTimeout(watchdogTimer);
+      utterance.onend = null;
+      utterance.onerror = null;
+      if (synth.onvoiceschanged === handleVoicesChanged) synth.onvoiceschanged = null;
+      resolve();
+    };
+    const timeoutMs = Math.min(30000, Math.max(4000, (text.length * 280) / Math.max(0.5, rateMultiplier)));
+    watchdogTimer = window.setTimeout(() => {
+      synth.cancel();
+      finish();
+    }, timeoutMs);
+    utterance.onend = finish;
+    utterance.onerror = finish;
+
     const speakWithBestVoice = (voices: SpeechSynthesisVoice[]) => {
       if (spoken) return;
       spoken = true;
@@ -575,6 +595,10 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
         null;
       synth.speak(utterance);
     };
+    handleVoicesChanged = () => {
+      window.clearTimeout(voicesTimer);
+      speakWithBestVoice(synth.getVoices());
+    };
 
     const voices = synth.getVoices();
     if (voices.length) {
@@ -582,11 +606,8 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
       return;
     }
 
-    const timer = window.setTimeout(() => speakWithBestVoice(synth.getVoices()), 500);
-    synth.onvoiceschanged = () => {
-      window.clearTimeout(timer);
-      speakWithBestVoice(synth.getVoices());
-    };
+    voicesTimer = window.setTimeout(() => speakWithBestVoice(synth.getVoices()), 500);
+    synth.onvoiceschanged = handleVoicesChanged;
   });
 }
 
@@ -824,7 +845,7 @@ function App() {
 
   const isSessionActive = (sessionToken: number) => playingRef.current && sessionTokenRef.current === sessionToken;
 
-  const playAudioIfPlaying = async (url: string, volume: number, rate: number, sessionToken: number) => {
+  const playAudioIfPlaying = async (url: string, volume: number, rate: number, sessionToken: number, timeoutMs = 8000) => {
     if (!isSessionActive(sessionToken)) return false;
     const audio = currentAudioRef.current || new Audio();
     currentAudioRef.current = audio;
@@ -836,10 +857,24 @@ function App() {
     let settled = false;
 
     return new Promise<boolean>((resolve) => {
-      const finish = (played: boolean) => {
+      let watchdogTimer = 0;
+      const cleanup = () => {
+        window.clearTimeout(watchdogTimer);
+        audio.onended = null;
+        audio.onerror = null;
+        audio.onpause = null;
+        audio.onloadedmetadata = null;
+      };
+      const finish = (played: boolean, stopAudio = false) => {
         if (settled) return;
         settled = true;
+        cleanup();
+        if (stopAudio) audio.pause();
         resolve(played && isSessionActive(sessionToken));
+      };
+      const armWatchdog = (ms: number) => {
+        window.clearTimeout(watchdogTimer);
+        watchdogTimer = window.setTimeout(() => finish(false, true), ms);
       };
 
       audio.onended = () => finish(true);
@@ -847,6 +882,12 @@ function App() {
       audio.onpause = () => {
         if (!isSessionActive(sessionToken)) finish(false);
       };
+      audio.onloadedmetadata = () => {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          armWatchdog(Math.max(timeoutMs, (audio.duration * 1000) / Math.max(0.25, rate) + 2500));
+        }
+      };
+      armWatchdog(timeoutMs);
       const playPromise = audio.play?.();
       if (!playPromise) {
         finish(false);
@@ -878,7 +919,7 @@ function App() {
 
   const waitIfPlaying = async (ms: number, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return false;
-    if (ms > 0 && !(await playAudioIfPlaying(silentAudioUrl(ms), 0, 1, sessionToken))) {
+    if (ms > 0 && !(await playAudioIfPlaying(silentAudioUrl(ms), 0, 1, sessionToken, ms + 1000))) {
       await wait(ms);
     }
     return isSessionActive(sessionToken);
