@@ -591,6 +591,37 @@ function speak(text: string, lang: TargetLanguage | NativeLanguage, volume: numb
 }
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+const silentAudioUrls = new Map<number, string>();
+
+function silentAudioUrl(ms: number) {
+  const roundedMs = Math.max(50, Math.round(ms));
+  const cached = silentAudioUrls.get(roundedMs);
+  if (cached) return cached;
+
+  const sampleRate = 8000;
+  const samples = Math.ceil((roundedMs / 1000) * sampleRate);
+  const buffer = new ArrayBuffer(44 + samples * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
+  };
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + samples * 2, true);
+  writeString(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, samples * 2, true);
+
+  const url = URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
+  silentAudioUrls.set(roundedMs, url);
+  return url;
+}
 
 function supabaseAudioUrl(storagePath: string) {
   const url = import.meta.env.VITE_SUPABASE_URL;
@@ -795,8 +826,11 @@ function App() {
 
   const playAudioIfPlaying = async (url: string, volume: number, rate: number, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return false;
-    const audio = new Audio(url);
+    const audio = currentAudioRef.current || new Audio();
     currentAudioRef.current = audio;
+    audio.src = url;
+    audio.loop = false;
+    audio.currentTime = 0;
     audio.volume = volume;
     audio.playbackRate = rate;
     let settled = false;
@@ -805,7 +839,6 @@ function App() {
       const finish = (played: boolean) => {
         if (settled) return;
         settled = true;
-        if (currentAudioRef.current === audio) currentAudioRef.current = null;
         resolve(played && isSessionActive(sessionToken));
       };
 
@@ -845,7 +878,9 @@ function App() {
 
   const waitIfPlaying = async (ms: number, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return false;
-    await wait(ms);
+    if (ms > 0 && !(await playAudioIfPlaying(silentAudioUrl(ms), 0, 1, sessionToken))) {
+      await wait(ms);
+    }
     return isSessionActive(sessionToken);
   };
 

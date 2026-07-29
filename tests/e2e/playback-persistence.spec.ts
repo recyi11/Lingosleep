@@ -263,9 +263,19 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
         onpause: (() => void) | null = null;
         volume = 1;
         playbackRate = 1;
+        private currentSrc = "";
 
-        constructor(url: string) {
+        constructor(url = "") {
           window.__audioAttempts = (window.__audioAttempts ?? 0) + 1;
+          this.src = url;
+        }
+
+        get src() {
+          return this.currentSrc;
+        }
+
+        set src(url: string) {
+          this.currentSrc = url;
           window.__audioUrls?.push(url);
         }
 
