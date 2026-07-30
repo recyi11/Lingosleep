@@ -10,3 +10,5 @@ npm-debug.log*
 .codex-vite*.log
 playwright-report/
 test-results/
+public/audio/**/*.mp3
+public/audio/**/*.tmp-*

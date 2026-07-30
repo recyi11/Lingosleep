@@ -12,16 +12,20 @@ const excludePrefixes = process.argv
   .flatMap((arg, index, args) => (arg === "--exclude-prefix" ? [args[index + 1]] : []))
   .filter(Boolean)
   .map((value) => value.replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/?$/, "/"));
+const quiet = process.env.AUDIO_QUIET === "1";
+const concurrency = Number(process.env.AUDIO_UPLOAD_CONCURRENCY || 8);
 
 const loadEnv = async () => {
-  try {
-    const source = await readFile(path.join(rootDir, ".env"), "utf8");
-    for (const line of source.split(/\r?\n/)) {
-      const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
-      if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
+  for (const fileName of [".env.local", ".env"]) {
+    try {
+      const source = await readFile(path.join(rootDir, fileName), "utf8");
+      for (const line of source.split(/\r?\n/)) {
+        const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
+        if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
+      }
+    } catch {
+      // Upload requires explicit env vars; missing env files are handled below.
     }
-  } catch {
-    // Upload requires explicit env vars; missing .env is handled below.
   }
 };
 
@@ -53,9 +57,16 @@ const files = (await walk(audioDir)).filter((file) => {
   const storagePath = path.relative(audioDir, file).replaceAll(path.sep, "/");
   return (!uploadPrefix || storagePath.startsWith(uploadPrefix)) && !excludePrefixes.some((prefix) => storagePath.startsWith(prefix));
 });
-for (const file of files) {
+let nextFile = 0;
+let uploaded = 0;
+let skipped = 0;
+
+const uploadFile = async (file) => {
   const info = await stat(file);
-  if (!info.size) continue;
+  if (!info.size) {
+    skipped += 1;
+    return;
+  }
   const storagePath = path.relative(audioDir, file).replaceAll(path.sep, "/");
   const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/audio/${storagePath}`, {
     method: "POST",
@@ -69,5 +80,18 @@ for (const file of files) {
     duplex: "half",
   });
   if (!response.ok) throw new Error(`Upload failed for ${storagePath}: ${response.status} ${await response.text()}`);
-  console.log(`uploaded ${storagePath}`);
-}
+  uploaded += 1;
+  if (!quiet) console.log(`uploaded ${storagePath}`);
+  if (quiet && (uploaded === files.length - skipped || uploaded % 500 === 0)) console.log(`uploaded ${uploaded}/${files.length - skipped} files`);
+};
+
+await Promise.all(
+  Array.from({ length: Math.max(1, Math.min(concurrency, files.length)) }, async () => {
+    while (nextFile < files.length) {
+      const file = files[nextFile++];
+      await uploadFile(file);
+    }
+  })
+);
+
+if (quiet) console.log(`uploaded ${uploaded} files${skipped ? `, skipped ${skipped} empty files` : ""}`);

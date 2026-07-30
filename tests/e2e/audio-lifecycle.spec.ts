@@ -445,7 +445,7 @@ test("Stop tears down background audio and cancels speech", async ({ page }) => 
   await startSession(page);
   await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.playCount ?? 0)).toBe(1);
 
-  await page.locator(".round-button").click();
+  await page.getByRole("button", { name: /Back to setup|返回设置/ }).click();
 
   await expect.poll(() => page.evaluate(() => window.__audio.cancelCount)).toBe(1);
   await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.pauseCount ?? 0)).toBe(1);
@@ -456,7 +456,7 @@ test("Recall mode does not lower background volume for speech", async ({ page })
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
   await finishSilentGap(page);
@@ -466,7 +466,7 @@ test("Recall mode does not lower background volume for speech", async ({ page })
 
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
-    .toEqual(["饭", "ごはん"]);
+    .toEqual(["饭，吃饭", "ごはん"]);
 
   const backgroundVolumeThroughTarget = await page.evaluate(() => window.__audio.media[0].volume);
   expect(backgroundVolumeThroughTarget).toBeCloseTo(sessionConfig.backgroundVolume * 1.3, 5);
@@ -477,12 +477,12 @@ test("Meaning delay slider controls native-to-target wait in Recall mode", async
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
   await finishSilentGap(page);
 
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭", "ごはん"]);
 });
 
 test("Speech gaps play silent audio so lock-screen playback can continue", async ({ page }) => {
@@ -490,14 +490,14 @@ test("Speech gaps play silent audio so lock-screen playback can continue", async
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
   await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.src ?? "")).toContain("blob:");
   await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.volume)).toBe(0);
 
   await page.evaluate(() => window.__audio.media[1]?.onended?.());
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭", "ごはん"]);
 });
 
 test("Stalled silent gaps fall back instead of blocking playback", async ({ page }) => {
@@ -505,13 +505,13 @@ test("Stalled silent gaps fall back instead of blocking playback", async ({ page
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
   await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.src ?? "")).toContain("blob:");
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)), { timeout: 3000 })
-    .toEqual(["饭", "ごはん"]);
+    .toEqual(["饭，吃饭", "ごはん"]);
 });
 
 test("Speech audio reuses one media element for lock-screen continuation", async ({ page }) => {
@@ -519,13 +519,15 @@ test("Speech audio reuses one media element for lock-screen continuation", async
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.src ?? "")).toContain("/audio/native/zh-cn/ja-food-basic-1-meaning.mp3");
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
-  await page.evaluate(() => window.__audio.media[1]?.onended?.());
+  await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
 
   await expect.poll(() => page.evaluate(() => window.__audio.media.length)).toBe(2);
-  await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.playCount ?? 0)).toBe(2);
-  await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.src ?? "")).toContain("/audio/target/ja-food-basic-1-word.mp3");
+  await expect.poll(() => page.evaluate(() => window.__audio.media[1]?.playCount ?? 0)).toBe(1);
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.media[1]?.src ?? ""))
+    .toContain("/storage/v1/object/public/audio/target/ja-food-basic-1-word.mp3");
 });
 
 test("Stalled Web Speech fallback does not block playback forever", async ({ page }) => {
@@ -533,11 +535,11 @@ test("Stalled Web Speech fallback does not block playback forever", async ({ pag
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)), { timeout: 7000 })
-    .toEqual(["饭", "ごはん"]);
+    .toEqual(["饭，吃饭", "ごはん"]);
   await expect.poll(() => page.evaluate(() => window.__audio.cancelCount)).toBeGreaterThan(0);
 });
 
@@ -546,55 +548,56 @@ test("Pause between words slider controls the wait before the next word", async 
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭", "ごはん"]);
 
   await page.evaluate(() => window.__audio.spoken[1]?.onend?.());
   await finishSilentGap(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん", "ごはん"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭", "ごはん", "ごはん"]);
 
   await page.evaluate(() => window.__audio.spoken[2]?.onend?.());
   await finishSilentGap(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭", "ごはん", "ごはん", "水"]);
+  await expect
+    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
+    .toEqual(["饭，吃饭", "ごはん", "ごはん", "水，饮用水", "みず"]);
 });
 
-test("Stop during Recall-mode gap prevents target and reading playback", async ({ page }) => {
+test("Pause during Recall-mode gap prevents target and reading playback while paused", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
   await page.locator(".round-button").click();
   await page.waitForTimeout(3200);
 
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
   await expect.poll(() => page.evaluate(() => window.__audio.media[0]?.pauseCount ?? 0)).toBe(1);
 });
 
-test("Restart after stopping during Recall-mode gap does not resume stale playback", async ({ page }) => {
+test("Resume during Recall-mode gap continues the same word instead of switching audio", async ({ page }) => {
   await prepareAudioHarness(page);
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
   await page.locator(".round-button").click();
-  await page.locator(".round-button").click();
-
-  await expect
-    .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
-    .toHaveLength(2);
-
   await page.waitForTimeout(3200);
 
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
+
+  await page.locator(".round-button").click();
+  await finishSilentGap(page);
+
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
-    .toHaveLength(2);
+    .toEqual(["饭，吃饭", "ごはん"]);
 });
 
 test("Restart after stopping during fade-out does not let old session stop the new one", async ({ page }) => {
@@ -619,8 +622,8 @@ test("Restart after stopping during fade-out does not let old session stop the n
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
     .toEqual(["ごはん", "朝ご飯を食べます。", "Good night."]);
 
-  await page.locator(".round-button").click();
-  await page.locator(".round-button").click();
+  await page.getByRole("button", { name: /Back to setup|返回设置/ }).click();
+  await startSession(page);
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
     .toEqual(["ごはん", "朝ご飯を食べます。", "Good night.", "みず"]);
@@ -673,7 +676,7 @@ test("Player displays meaning with colon romanization", async ({ page }) => {
 
   await startSession(page);
 
-  await expect.poll(() => page.locator(".meaning").innerText({ timeoutMs: 1000 })).toBe("饭：gohan");
+  await expect.poll(() => page.locator(".meaning").innerText({ timeoutMs: 1000 })).toBe("饭，吃饭：gohan");
 });
 
 test("Back to setup stops active playback so settings can be changed", async ({ page }) => {
@@ -703,7 +706,7 @@ test("English native speech respects selected male voice style", async ({ page }
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["meal"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["rice, meal"]);
 
   const nativeSpeech = await page.evaluate(() => window.__audio.spoken[0]);
   expect(nativeSpeech.lang).toBe("en-US");
@@ -731,7 +734,7 @@ test("Japanese target speech gets Japanese-only volume boost", async ({ page }) 
   await page.goto("/");
 
   await startSession(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["饭，吃饭"]);
   const nativeSpeechVolume = await page.evaluate(() => window.__audio.spoken[0]?.volume);
   expect(nativeSpeechVolume).toBeCloseTo(sessionConfig.nativeVoiceVolume, 5);
 
@@ -746,7 +749,7 @@ test("Japanese target speech gets Japanese-only volume boost", async ({ page }) 
 
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
-    .toEqual(["饭", "ごはん"]);
+    .toEqual(["饭，吃饭", "ごはん"]);
 
   const targetSpeechVolume = await page.evaluate(() => window.__audio.spoken[1]?.volume);
   expect(targetSpeechVolume).toBeCloseTo(0.31 * 1.3, 5);
@@ -766,19 +769,19 @@ test("Word and example sentence mode keeps speech at selected voice volumes", as
 
   await page.evaluate(() => window.__audio.spoken[0]?.onend?.());
   await finishSilentGap(page);
-  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["ごはん", "饭"]);
+  await expect.poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text))).toEqual(["ごはん", "饭，吃饭"]);
 
   await page.evaluate(() => window.__audio.spoken[1]?.onend?.());
   await finishSilentGap(page);
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
-    .toEqual(["ごはん", "饭", "朝ご飯を食べます。"]);
+    .toEqual(["ごはん", "饭，吃饭", "朝ご飯を食べます。"]);
 
   await page.evaluate(() => window.__audio.spoken[2]?.onend?.());
   await finishSilentGap(page);
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
-    .toEqual(["ごはん", "饭", "朝ご飯を食べます。", "我吃早饭。"]);
+    .toEqual(["ごはん", "饭，吃饭", "朝ご飯を食べます。", "我吃早饭。"]);
 
   const volumes = await page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.volume));
   expect(volumes).toEqual([0.46 * 1.3, 0.81 * 0.88, 0.46 * 0.84 * 1.3, 0.81 * 0.74]);
@@ -794,7 +797,7 @@ test("Korean target speech gets Korean-only volume boost", async ({ page }) => {
 
   await expect
     .poll(() => page.evaluate(() => window.__audio.spoken.map((utterance) => utterance.text)))
-    .toEqual(["米饭", "밥"]);
+    .toEqual(["米饭，饭", "밥"]);
 
   const targetSpeechVolume = await page.evaluate(() => window.__audio.spoken[1]?.volume);
   expect(targetSpeechVolume).toBeCloseTo(0.4 * 1.3, 5);

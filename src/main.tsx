@@ -30,6 +30,7 @@ import {
   type Topic,
   type VocabItem,
 } from "./vocabulary";
+import { ensureMeaningPairs } from "./meaning-pairs";
 import "./styles.css";
 
 type PlaybackMode =
@@ -450,7 +451,7 @@ function normalizeConfig(config: SessionConfig): SessionConfig {
 }
 
 function withDefaultMetadata(item: VocabItem): VocabItem {
-  return { ...item, status: "New", favorite: false, timesPlayed: 0 };
+  return { ...item, meanings: ensureMeaningPairs(item.meanings), status: "New", favorite: false, timesPlayed: 0 };
 }
 
 function readPersistedVocabMetadata(stored: unknown): PersistedVocabMetadata {
@@ -650,24 +651,26 @@ function supabaseAudioUrl(storagePath: string) {
   return `${url.replace(/\/$/, "")}/storage/v1/object/public/audio/${storagePath}`;
 }
 
-function audioSources(storagePath: string) {
-  return [`/audio/${storagePath}`, supabaseAudioUrl(storagePath)].filter(Boolean) as string[];
+function audioSources(storagePath: string, remoteFirst = false) {
+  const localUrl = `/audio/${storagePath}`;
+  const remoteUrl = supabaseAudioUrl(storagePath);
+  return (remoteFirst ? [remoteUrl, localUrl] : [localUrl, remoteUrl]).filter(Boolean) as string[];
 }
 
 function styledTargetAudioSources(itemId: string, kind: "word" | "example", style: VoiceStyle) {
   const fileName = `${itemId}-${kind}.mp3`;
-  if (style === "Male") return audioSources(`target/male/${fileName}`);
-  if (style === "Female") return [...audioSources(`target/${fileName}`), ...audioSources(`target/female/${fileName}`)];
-  return audioSources(`target/${fileName}`);
+  if (style === "Male") return audioSources(`target/male/${fileName}`, true);
+  if (style === "Female") return [...audioSources(`target/${fileName}`, true), ...audioSources(`target/female/${fileName}`, true)];
+  return audioSources(`target/${fileName}`, true);
 }
 
 function nativeAudioSources(itemId: string, kind: "meaning" | "example", language: NativeLanguage, style: VoiceStyle) {
   const languagePath = language === "English" ? "en" : language === "Simplified Chinese" ? "zh-cn" : null;
   if (!languagePath) return [];
   const fileName = `${itemId}-${kind}.mp3`;
-  if (style === "Male") return audioSources(`native/${languagePath}/male/${fileName}`);
-  if (style === "Female") return [...audioSources(`native/${languagePath}/${fileName}`), ...audioSources(`native/${languagePath}/female/${fileName}`)];
-  return audioSources(`native/${languagePath}/${fileName}`);
+  if (style === "Male") return audioSources(`native/${languagePath}/male/${fileName}`, true);
+  if (style === "Female") return [...audioSources(`native/${languagePath}/${fileName}`, true), ...audioSources(`native/${languagePath}/female/${fileName}`, true)];
+  return audioSources(`native/${languagePath}/${fileName}`, true);
 }
 
 function useBackgroundSound(sound: BackgroundSound, volume: number) {
@@ -734,11 +737,13 @@ function App() {
     localStorage.getItem("lingosleep-onboarded") ? "setup" : "onboarding"
   );
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [currentItem, setCurrentItem] = useState<VocabItem | null>(null);
   const [playedIds, setPlayedIds] = useState<string[]>([]);
   const [secondsLeft, setSecondsLeft] = useState(config.languageMinutes * 60);
   const [backgroundLeft, setBackgroundLeft] = useState(config.backgroundMinutes * 60);
   const playingRef = useRef(false);
+  const pausedRef = useRef(false);
   const sessionTokenRef = useRef(0);
   const playedIdsRef = useRef<string[]>([]);
   const background = useBackgroundSound(config.backgroundSound, config.backgroundVolume);
@@ -807,11 +812,11 @@ function App() {
       album: `${config.targetLanguage} ${config.level}`,
     });
     navigator.mediaSession.setActionHandler("play", () => startSession());
-    navigator.mediaSession.setActionHandler("pause", () => stopSession(false));
+    navigator.mediaSession.setActionHandler("pause", () => pauseSession());
   }, [currentItem, config]);
 
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || isPaused) return;
     const timer = window.setInterval(() => {
       setSecondsLeft((value) => Math.max(0, value - 1));
       setBackgroundLeft((value) => {
@@ -821,7 +826,7 @@ function App() {
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [isPlaying]);
+  }, [isPlaying, isPaused]);
 
   const updateConfig = <K extends keyof SessionConfig>(key: K, value: SessionConfig[K]) => {
     setConfig((current) => ({ ...current, [key]: value }));
@@ -845,8 +850,16 @@ function App() {
 
   const isSessionActive = (sessionToken: number) => playingRef.current && sessionTokenRef.current === sessionToken;
 
+  const waitUntilResumed = async (sessionToken: number) => {
+    while (isSessionActive(sessionToken) && pausedRef.current) {
+      await wait(100);
+    }
+    return isSessionActive(sessionToken);
+  };
+
   const playAudioIfPlaying = async (url: string, volume: number, rate: number, sessionToken: number, timeoutMs = 8000) => {
     if (!isSessionActive(sessionToken)) return false;
+    if (!(await waitUntilResumed(sessionToken))) return false;
     const audio = currentAudioRef.current || new Audio();
     currentAudioRef.current = audio;
     audio.src = url;
@@ -874,7 +887,17 @@ function App() {
       };
       const armWatchdog = (ms: number) => {
         window.clearTimeout(watchdogTimer);
-        watchdogTimer = window.setTimeout(() => finish(false, true), ms);
+        watchdogTimer = window.setTimeout(async () => {
+          if (pausedRef.current && (await waitUntilResumed(sessionToken))) {
+            armWatchdog(ms);
+            return;
+          }
+          if (!isSessionActive(sessionToken)) {
+            finish(false, true);
+            return;
+          }
+          finish(false, true);
+        }, ms);
       };
 
       audio.onended = () => finish(true);
@@ -906,6 +929,7 @@ function App() {
     audioPaths: string[] = []
   ) => {
     if (!isSessionActive(sessionToken)) return false;
+    if (!(await waitUntilResumed(sessionToken))) return false;
     const rate = role === "target" ? configRef.current.targetVoiceRate : configRef.current.nativeVoiceRate;
     const voiceStyle = role === "target" ? configRef.current.targetVoiceStyle : configRef.current.nativeVoiceStyle;
     for (const audioPath of audioPaths) {
@@ -919,8 +943,18 @@ function App() {
 
   const waitIfPlaying = async (ms: number, sessionToken: number) => {
     if (!isSessionActive(sessionToken)) return false;
+    if (!(await waitUntilResumed(sessionToken))) return false;
     if (ms > 0 && !(await playAudioIfPlaying(silentAudioUrl(ms), 0, 1, sessionToken, ms + 1000))) {
-      await wait(ms);
+      let remaining = ms;
+      while (isSessionActive(sessionToken) && remaining > 0) {
+        if (pausedRef.current) {
+          if (!(await waitUntilResumed(sessionToken))) return false;
+          continue;
+        }
+        const chunk = Math.min(100, remaining);
+        await wait(chunk);
+        remaining -= chunk;
+      }
     }
     return isSessionActive(sessionToken);
   };
@@ -971,13 +1005,19 @@ function App() {
   };
 
   const startSession = async () => {
+    if (playingRef.current && pausedRef.current) {
+      resumeSession();
+      return;
+    }
     if (playingRef.current) return;
     if (!playlist.length) return;
     const sessionToken = sessionTokenRef.current + 1;
     sessionTokenRef.current = sessionToken;
     setStep("player");
     setIsPlaying(true);
+    setIsPaused(false);
     playingRef.current = true;
+    pausedRef.current = false;
     setSecondsLeft(config.languageMinutes * 60);
     setBackgroundLeft(config.backgroundMinutes * 60);
     setPlayedIds([]);
@@ -1010,6 +1050,7 @@ function App() {
 
   const stopSession = (save: boolean) => {
     playingRef.current = false;
+    pausedRef.current = false;
     sessionTokenRef.current += 1;
     window.speechSynthesis?.cancel();
     currentAudioRef.current?.pause();
@@ -1017,6 +1058,7 @@ function App() {
     background.stop();
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     setIsPlaying(false);
+    setIsPaused(false);
     const savedPlayedIds = Array.from(new Set(playedIdsRef.current));
     if (save && savedPlayedIds.length) {
       setHistory((records) => [
@@ -1029,6 +1071,26 @@ function App() {
         ...records,
       ]);
     }
+  };
+
+  const pauseSession = () => {
+    if (!playingRef.current || pausedRef.current) return;
+    pausedRef.current = true;
+    setIsPaused(true);
+    window.speechSynthesis?.pause?.();
+    currentAudioRef.current?.pause();
+    background.stop();
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+  };
+
+  const resumeSession = () => {
+    if (!playingRef.current || !pausedRef.current) return;
+    pausedRef.current = false;
+    setIsPaused(false);
+    background.start();
+    window.speechSynthesis?.resume?.();
+    void currentAudioRef.current?.play().catch(() => undefined);
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
   };
 
   const fadeLanguage = async (sessionToken: number) => {
@@ -1439,8 +1501,8 @@ function App() {
               />
             </div>
             <div className="player-actions">
-              <button className="round-button" onClick={() => (isPlaying ? stopSession(true) : startSession())}>
-                {isPlaying ? <Pause size={32} /> : <Play size={32} />}
+              <button className="round-button" onClick={() => (isPaused ? resumeSession() : isPlaying ? pauseSession() : startSession())}>
+                {isPlaying && !isPaused ? <Pause size={32} /> : <Play size={32} />}
               </button>
               <button className="icon-button" onClick={() => currentItem && toggleFavorite(currentItem.id)}>
                 <Heart size={23} fill={currentItem?.favorite ? "currentColor" : "none"} />

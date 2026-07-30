@@ -28,4 +28,12 @@ test.describe("service worker update strategy", () => {
     expect(preCachesHtmlShell).toBe(false);
     expect(networkFirstDocumentHandler || skipsHtmlOrScriptCaching).toBe(true);
   });
+
+  test("does not cache failed responses for media assets", async () => {
+    const source = await readFile(serviceWorkerPath, "utf8");
+
+    expect(source).toMatch(/response\.ok[\s\S]{0,160}cache\.put\s*\(\s*request/);
+    expect(source).toMatch(/request\.destination\s*===\s*["']audio["']/);
+    expect(source).toMatch(/fetch\s*\(\s*event\.request[\s\S]{0,260}cacheIfOk\s*\(\s*event\.request,\s*response\s*\)/);
+  });
 });

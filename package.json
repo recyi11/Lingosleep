@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
+    "audit:audio": "node scripts/audit-audio-coverage.mjs",
+    "expand:meanings": "node scripts/expand-vocabulary-meaning-pairs.mjs",
     "generate:audio": "node scripts/generate-target-audio.mjs",
     "upload:audio": "node scripts/upload-audio-to-supabase.mjs",
     "preview": "vite preview --host 0.0.0.0",

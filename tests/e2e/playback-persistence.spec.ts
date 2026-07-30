@@ -34,7 +34,7 @@ const cases: CorruptionCase[] = [
     corruptedId: "ko-food-basic-1",
     corruptedText: "자다",
     corruptedReading: "자다",
-    expectedSpeech: ["rice", "밥", "밥"],
+    expectedSpeech: ["rice, meal", "밥", "밥"],
   },
   {
     name: "Japanese Food",
@@ -42,7 +42,7 @@ const cases: CorruptionCase[] = [
     corruptedId: "ja-food-basic-1",
     corruptedText: "寝る",
     corruptedReading: "ねる",
-    expectedSpeech: ["meal", "ごはん", "ごはん"],
+    expectedSpeech: ["rice, meal", "ごはん", "ごはん"],
   },
 ];
 
@@ -161,7 +161,7 @@ for (const testCase of cases) {
   });
 }
 
-test("remote vocabulary wins over bundled duplicate fields", async ({ page }) => {
+test("local meaning overrides still apply to remote duplicate fields", async ({ page }) => {
   await page.route("**/rest/v1/vocabulary**", (route) =>
     route.fulfill({
       status: 200,
@@ -221,7 +221,148 @@ test("remote vocabulary wins over bundled duplicate fields", async ({ page }) =>
         ];
       })
     )
-    .toBe("REMOTE-ZH");
+    .toBe("饭，吃饭");
+});
+
+test("remote vocabulary without bundled audio coverage is skipped", async ({ page }) => {
+  await page.route("**/rest/v1/vocabulary**", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "content-range": "0-1/2",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify([
+        {
+          id: "ja-food-basic-1",
+          target_language: "ja",
+          level: "basic",
+          topic: "food",
+          target_text: "ご飯",
+          reading: "ごはん",
+          romanization: "gohan",
+          meaning_en: "meal",
+          meaning_zh_cn: "饭",
+          example_text: "朝ご飯を食べます。",
+          example_translation_en: "I eat breakfast.",
+          example_translation_zh_cn: "我吃早饭。",
+        },
+        {
+          id: "ja-food-basic-999",
+          target_language: "ja",
+          level: "basic",
+          topic: "food",
+          target_text: "未生成の音声",
+          reading: "みせいせいのおんせい",
+          romanization: "missing-audio",
+          meaning_en: "missing audio",
+          meaning_zh_cn: "缺少音频",
+          example_text: "未生成の音声です。",
+          example_translation_en: "The audio has not been generated.",
+          example_translation_zh_cn: "音频尚未生成。",
+        },
+      ]),
+    })
+  );
+  await page.addInitScript(() => {
+    window.localStorage.setItem("lingosleep-onboarded", "true");
+  });
+
+  await page.goto("/");
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const vocab = JSON.parse(window.localStorage.getItem("lingosleep-vocab") || "[]") as Array<{ id: string }>;
+        return {
+          bundledDuplicateLoaded: vocab.some((item) => item.id === "ja-food-basic-1"),
+          missingAudioLoaded: vocab.some((item) => item.id === "ja-food-basic-999"),
+        };
+      })
+    )
+    .toEqual({ bundledDuplicateLoaded: true, missingAudioLoaded: false });
+});
+
+test("advanced Korean meaning override keeps two native explanations", async ({ page }) => {
+  await page.route("**/rest/v1/vocabulary**", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "content-range": "0-0/1",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify([
+        {
+          id: "ko-topik-advanced-4",
+          target_language: "ko",
+          level: "advanced",
+          topic: "TOPIK",
+          target_text: "현저하다",
+          reading: "현저하다",
+          romanization: "hyeonjeohada",
+          meaning_en: "remarkable",
+          meaning_zh_cn: "显著",
+          example_text: "현저한 변화가 있었어요.",
+          example_translation_en: "There was a significant change.",
+          example_translation_zh_cn: "发生了显著变化。",
+        },
+      ]),
+    })
+  );
+  await page.addInitScript(() => {
+    window.localStorage.setItem("lingosleep-onboarded", "true");
+    window.localStorage.setItem(
+      "lingosleep-config",
+      JSON.stringify({
+        targetLanguage: "Korean",
+        nativeLanguage: "Simplified Chinese",
+        level: "Advanced",
+        topic: "TOPIK",
+        mode: "Recall mode",
+        languageMinutes: 10,
+        backgroundMinutes: 10,
+        backgroundSound: "none",
+        playbackOrder: "Start from beginning",
+        voiceVolume: 0.72,
+        nativeVoiceVolume: 0.95,
+        targetVoiceRate: 1,
+        nativeVoiceRate: 1,
+        backgroundVolume: 0,
+      })
+    );
+  });
+
+  await page.goto("/");
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const vocab = JSON.parse(window.localStorage.getItem("lingosleep-vocab") || "[]");
+        return vocab.find((item: { id: string; meanings: Record<string, string> }) => item.id === "ko-topik-advanced-4")?.meanings[
+          "Simplified Chinese"
+        ];
+      })
+    )
+    .toBe("显著，明显");
+});
+
+test("bundled vocabulary uses paired native explanations", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("lingosleep-onboarded", "true");
+  });
+
+  await page.goto("/");
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const vocab = JSON.parse(window.localStorage.getItem("lingosleep-vocab") || "[]") as Array<{ meanings: Record<string, string> }>;
+        return vocab.filter(
+          (item) => !/[,;/]/.test(item.meanings.English) || !/[，,、；;]/.test(item.meanings["Simplified Chinese"])
+        ).length;
+      })
+    )
+    .toBe(0);
 });
 
 for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
@@ -335,7 +476,7 @@ for (const voiceStyle of ["Female", "Male"] as VoiceStyle[]) {
     await page.goto("/");
     await startSession(page);
 
-    await expect.poll(() => page.evaluate(() => window.__spoken.slice(0, 3))).toEqual(["meal", "ごはん", "ごはん"]);
+    await expect.poll(() => page.evaluate(() => window.__spoken.slice(0, 3))).toEqual(["rice, meal", "ごはん", "ごはん"]);
 
     const expectedVoice = voiceStyle === "Female" ? "Kyoko Female" : "Otoya Male";
     const expectedNativeVoice = voiceStyle === "Female" ? "Brian Male" : "Michelle Female";
