@@ -1,6 +1,7 @@
 # LingoSleep
 
-url: lingosleep.pages.dev
+deploy url: 
+lingosleep.pages.dev
 
 LingoSleep is a mobile-first nighttime vocabulary review app for Japanese and Korean. It combines curated vocabulary playback, native-language meanings, gentle recall pauses, session timers, calming background sounds, favorites, history, and basic progress tracking.
 
