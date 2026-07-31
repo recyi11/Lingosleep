@@ -1808,7 +1808,7 @@ function RangeControl({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="range-control">
+    <div className="range-control">
       <span>
         <span>
           {icon}
@@ -1816,8 +1816,8 @@ function RangeControl({
         </span>
         {valueText && <small>{valueText}</small>}
       </span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
-    </label>
+      <input type="range" min={min} max={max} step={step} value={value} onInput={(event) => onChange(Number((event.target as HTMLInputElement).value))} onChange={() => undefined} />
+    </div>
   );
 }
 

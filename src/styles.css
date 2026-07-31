@@ -424,6 +424,7 @@ input:focus-visible {
 input[type="range"] {
   width: 100%;
   accent-color: var(--accent);
+  touch-action: none;
 }
 
 .primary-button,
