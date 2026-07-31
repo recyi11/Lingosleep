@@ -9,9 +9,11 @@ import {
   Copy,
   Heart,
   History,
+  List,
   Moon,
   Pause,
   Play,
+  RefreshCw,
   RotateCcw,
   Shuffle,
   SlidersHorizontal,
@@ -276,6 +278,9 @@ const simplifiedChineseLabels: Record<string, string> = {
   "brown noise": "棕噪音",
   fireplace: "壁炉声",
   none: "无",
+  "View playlist": "查看播放列表",
+  "Current playlist": "当前播放列表",
+  "Shuffle words": "换一批词",
 };
 
 function translate(text: string, nativeLanguage: NativeLanguage) {
@@ -733,9 +738,10 @@ function App() {
   const [syncStatus, setSyncStatus] = useState(syncCode ? "Sync enabled" : "Local only");
   const [syncReady, setSyncReady] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [step, setStep] = useState<"onboarding" | "setup" | "player" | "history" | "quiz">(() =>
+  const [step, setStep] = useState<"onboarding" | "setup" | "player" | "history" | "quiz" | "playlist">(() =>
     localStorage.getItem("lingosleep-onboarded") ? "setup" : "onboarding"
   );
+  const [playlistSeed, setPlaylistSeed] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [currentItem, setCurrentItem] = useState<VocabItem | null>(null);
@@ -792,7 +798,7 @@ function App() {
       });
   }, []);
 
-  const playlist = useMemo(() => buildPlaylist(vocab, config), [vocab, config]);
+  const playlist = useMemo(() => buildPlaylist(vocab, config, playlistSeed), [vocab, config, playlistSeed]);
   const playlistKey = useMemo(() => getPlaylistKey(config), [config.targetLanguage, config.level, config.topic]);
   const completedWords = Math.min(playlist.length, Math.max(0, playlistPositions[playlistKey] || 0));
   const resumeWord = playlist[completedWords % (playlist.length || 1)];
@@ -1366,6 +1372,10 @@ function App() {
                   ? `${t("continue from")} ${resumeWord.targetText}`
                   : t("all words finished")}
             </p>
+            <button className="text-button playlist-link" onClick={() => setStep("playlist")}>
+              <List size={16} />
+              {t("View playlist")}
+            </button>
           </div>
           <ControlGroup title={t("Timers")}>
             <TimerPicker
@@ -1544,6 +1554,46 @@ function App() {
         </section>
       )}
 
+      {step === "playlist" && (
+        <section className="screen stack">
+          <div className="playlist-header">
+            <h2>{t("Current playlist")}</h2>
+            <button
+              className="secondary-button"
+              onClick={() => {
+                setPlaylistSeed((s) => s + 1);
+                setPlaylistPositions((positions) => ({ ...positions, [playlistKey]: 0 }));
+              }}
+            >
+              <RefreshCw size={16} />
+              {t("Shuffle words")}
+            </button>
+          </div>
+          <p className="fine-print">
+            {playlist.length} {t("words")} · {label(config.targetLanguage)} · {label(config.level)}
+            {config.topic !== allTopics ? ` · ${label(config.topic)}` : ""}
+          </p>
+          <div className="word-list">
+            {playlist.map((item, index) => (
+              <div className="word-row" key={item.id}>
+                <div>
+                  <strong>
+                    <span className="playlist-index">{index + 1}. </span>
+                    {item.targetText}
+                  </strong>
+                  <span>
+                    {item.reading} · {item.meanings[config.nativeLanguage]}
+                  </span>
+                </div>
+                <button className="icon-button" onClick={() => toggleFavorite(item.id)} aria-label={t("Toggle favorite")}>
+                  <Star size={18} fill={item.favorite ? "currentColor" : "none"} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {step === "quiz" && (
         <QuizScreen
           words={lastSessionWords}
@@ -1559,13 +1609,14 @@ function App() {
   );
 }
 
-function buildPlaylist(vocab: VocabItem[], config: SessionConfig) {
+function buildPlaylist(vocab: VocabItem[], config: SessionConfig, seed = 0) {
   const languageItems = vocab.filter((item) => item.targetLanguage === config.targetLanguage);
   const levelItems = languageItems.filter((item) => item.level === config.level);
   const topicItems = config.topic === allTopics ? levelItems : levelItems.filter((item) => item.topic === config.topic);
   const backupItems =
     config.topic === allTopics ? languageItems : [...languageItems.filter((item) => item.topic === config.topic), ...levelItems, ...languageItems];
-  return takeUnique([...topicItems, ...backupItems], playlistBucketSize);
+  const pool = seed > 0 ? seededShuffle([...topicItems, ...backupItems], seed) : [...topicItems, ...backupItems];
+  return takeUnique(pool, playlistBucketSize);
 }
 
 function takeUnique(items: VocabItem[], limit: number) {
@@ -1588,6 +1639,20 @@ function shuffle<T>(items: T[]) {
   const shuffled = [...items];
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function seededShuffle<T>(items: T[], seed: number) {
+  const shuffled = [...items];
+  let s = seed;
+  const next = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(next() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;

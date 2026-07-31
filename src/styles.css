@@ -720,3 +720,34 @@ input[type="range"] {
     width: min(calc(100% - 48px), 780px);
   }
 }
+
+.playlist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.playlist-header h2 {
+  margin: 0;
+}
+
+.playlist-header .secondary-button {
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  gap: 5px;
+}
+
+.playlist-index {
+  opacity: 0.5;
+  font-weight: 400;
+  font-size: 0.82rem;
+}
+
+.playlist-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 0.82rem;
+}
