@@ -704,11 +704,22 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
 
   const stop = () => {
     const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.currentTime = 0;
-    }
+    if (!audio) return;
     audioRef.current = null;
+    const startVol = audio.volume;
+    const fadeDuration = 3000;
+    const steps = 30;
+    const interval = fadeDuration / steps;
+    let step = 0;
+    const timer = setInterval(() => {
+      step += 1;
+      audio.volume = Math.max(0, startVol * (1 - step / steps));
+      if (step >= steps) {
+        clearInterval(timer);
+        audio.pause();
+        audio.currentTime = 0;
+      }
+    }, interval);
   };
 
   const duck = (_active: boolean) => undefined;
