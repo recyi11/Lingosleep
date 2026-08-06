@@ -82,22 +82,45 @@ const mapRemoteVocabulary = (row) => {
   };
 };
 
+const vocabTables = [
+  { table: "vocab_ja_basic_daily_life", target_language: "ja" },
+  { table: "vocab_ja_basic_food", target_language: "ja" },
+  { table: "vocab_ja_basic_travel", target_language: "ja" },
+  { table: "vocab_ja_basic_numbers", target_language: "ja" },
+  { table: "vocab_ja_basic_common_verbs", target_language: "ja" },
+  { table: "vocab_ja_intermediate_daily_life", target_language: "ja" },
+  { table: "vocab_ja_intermediate_food", target_language: "ja" },
+  { table: "vocab_ja_intermediate_travel", target_language: "ja" },
+  { table: "vocab_ja_intermediate_work", target_language: "ja" },
+  { table: "vocab_ja_intermediate_school", target_language: "ja" },
+  { table: "vocab_ja_intermediate_anime_drama", target_language: "ja" },
+  { table: "vocab_ja_advanced_jlpt", target_language: "ja" },
+  { table: "vocab_ko_basic_daily_life", target_language: "ko" },
+  { table: "vocab_ko_basic_food", target_language: "ko" },
+  { table: "vocab_ko_basic_travel", target_language: "ko" },
+  { table: "vocab_ko_basic_numbers", target_language: "ko" },
+  { table: "vocab_ko_basic_common_verbs", target_language: "ko" },
+  { table: "vocab_ko_intermediate_daily_life", target_language: "ko" },
+  { table: "vocab_ko_intermediate_food", target_language: "ko" },
+  { table: "vocab_ko_intermediate_travel", target_language: "ko" },
+  { table: "vocab_ko_intermediate_work", target_language: "ko" },
+  { table: "vocab_ko_intermediate_school", target_language: "ko" },
+  { table: "vocab_ko_intermediate_anime_drama", target_language: "ko" },
+  { table: "vocab_ko_advanced_topik", target_language: "ko" },
+];
+
 const readRemoteVocab = async () => {
   const url = process.env.VITE_SUPABASE_URL;
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
   if (!url || !anonKey || url === "https://example.supabase.co") return [];
   const rows = [];
-  for (let from = 0; ; from += 1000) {
-    const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/vocabulary?select=*&offset=${from}&limit=1000`, {
-      headers: {
-        apikey: anonKey,
-        authorization: `Bearer ${anonKey}`,
-      },
+  for (const { table, target_language } of vocabTables) {
+    const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/${table}?select=*`, {
+      headers: { apikey: anonKey, authorization: `Bearer ${anonKey}` },
     });
-    if (!response.ok) throw new Error(`Supabase vocabulary fetch failed: ${response.status}`);
-    const page = await response.json();
-    rows.push(...page);
-    if (page.length < 1000) break;
+    if (!response.ok) { console.warn(`Warning: failed to fetch ${table}: ${response.status}`); continue; }
+    const data = await response.json();
+    rows.push(...data.map((row) => ({ ...row, target_language })));
   }
   return rows.map(mapRemoteVocabulary).filter(Boolean);
 };

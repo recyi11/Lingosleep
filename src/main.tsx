@@ -10,17 +10,20 @@ import {
   Heart,
   History,
   List,
+  Menu,
   Moon,
   Pause,
   Play,
   RefreshCw,
   RotateCcw,
+  Settings,
   Shuffle,
   SlidersHorizontal,
   Sparkles,
   Star,
   Volume2,
   Waves,
+  X,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import {
@@ -281,6 +284,9 @@ const simplifiedChineseLabels: Record<string, string> = {
   "View playlist": "查看播放列表",
   "Current playlist": "当前播放列表",
   "Shuffle words": "换一批词",
+  Settings: "设置",
+  Playlist: "播放列表",
+  Quiz: "测验",
 };
 
 function translate(text: string, nativeLanguage: NativeLanguage) {
@@ -777,6 +783,7 @@ function App() {
     localStorage.getItem("lingosleep-onboarded") ? "setup" : "onboarding"
   );
   const [playlistSeed, setPlaylistSeed] = useState(0);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [currentItem, setCurrentItem] = useState<VocabItem | null>(null);
@@ -1246,16 +1253,28 @@ function App() {
       <div className="app-bg" />
       {step !== "onboarding" && (
         <header className="topbar">
-          <button className="icon-button" onClick={goToSetup} aria-label="Back to setup">
-            <ChevronLeft size={22} />
-          </button>
+          {step === "setup" ? (
+            <button className="icon-button" onClick={() => setDrawerOpen(true)} aria-label="Settings">
+              <Menu size={22} />
+            </button>
+          ) : (
+            <button className="icon-button" onClick={goToSetup} aria-label="Back">
+              <ChevronLeft size={22} />
+            </button>
+          )}
           <div>
             <p className="eyebrow">LingoSleep</p>
-            <h1>{t("Night vocabulary review")}</h1>
+            <h1>{step === "setup" ? `${label(config.targetLanguage)} · ${label(config.level)}` : t("Night vocabulary review")}</h1>
           </div>
-          <button className="icon-button" onClick={() => setStep("history")} aria-label={t("Session history")}>
-            <History size={21} />
-          </button>
+          {step === "setup" ? (
+            <button className="icon-button" onClick={() => setStep("history")} aria-label={t("Session history")}>
+              <History size={21} />
+            </button>
+          ) : (
+            <button className="icon-button" onClick={() => setStep("history")} aria-label={t("Session history")}>
+              <History size={21} />
+            </button>
+          )}
         </header>
       )}
 
@@ -1284,67 +1303,30 @@ function App() {
         </section>
       )}
 
-      {step === "setup" && (
-        <section className="screen stack">
-          <Notice t={t} />
+      {/* Drawer overlay */}
+      {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />}
+      <aside className={`drawer ${drawerOpen ? "open" : ""}`}>
+        <div className="drawer-header">
+          <h2><Settings size={18} /> {t("Settings")}</h2>
+          <button className="icon-button" onClick={() => setDrawerOpen(false)}><X size={22} /></button>
+        </div>
+        <div className="drawer-body">
           <ControlGroup title={t("Target language")}>
-            <Segmented
-              options={targetLanguages}
-              value={config.targetLanguage}
-              labelFor={label}
-              onChange={(value) => updateConfig("targetLanguage", value as TargetLanguage)}
-            />
-            <RangeControl
-              icon={<Clock3 size={18} />}
-              label={t("Target speed")}
-              value={config.targetVoiceRate}
-              min={0.5}
-              max={2}
-              step={0.1}
-              valueText={`${config.targetVoiceRate.toFixed(1)}x`}
-              onChange={(value) => updateConfig("targetVoiceRate", value)}
-            />
+            <Segmented options={targetLanguages} value={config.targetLanguage} labelFor={label} onChange={(value) => updateConfig("targetLanguage", value as TargetLanguage)} />
+            <RangeControl icon={<Clock3 size={18} />} label={t("Target speed")} value={config.targetVoiceRate} min={0.5} max={2} step={0.1} valueText={`${config.targetVoiceRate.toFixed(1)}x`} onChange={(value) => updateConfig("targetVoiceRate", value)} />
             <span className="segmented-label">{t("Target voice style")}</span>
-            <Segmented
-              options={voiceStyles}
-              value={config.targetVoiceStyle}
-              labelFor={label}
-              onChange={(value) => updateConfig("targetVoiceStyle", value as VoiceStyle)}
-            />
+            <Segmented options={voiceStyles} value={config.targetVoiceStyle} labelFor={label} onChange={(value) => updateConfig("targetVoiceStyle", value as VoiceStyle)} />
           </ControlGroup>
           <ControlGroup title={t("Native language")}>
-            <Segmented
-              options={nativeLanguages}
-              value={config.nativeLanguage}
-              labelFor={label}
-              onChange={(value) => updateConfig("nativeLanguage", value as NativeLanguage)}
-            />
-            <RangeControl
-              icon={<Clock3 size={18} />}
-              label={t("Native speed")}
-              value={config.nativeVoiceRate}
-              min={0.5}
-              max={2}
-              step={0.1}
-              valueText={`${config.nativeVoiceRate.toFixed(1)}x`}
-              onChange={(value) => updateConfig("nativeVoiceRate", value)}
-            />
+            <Segmented options={nativeLanguages} value={config.nativeLanguage} labelFor={label} onChange={(value) => updateConfig("nativeLanguage", value as NativeLanguage)} />
+            <RangeControl icon={<Clock3 size={18} />} label={t("Native speed")} value={config.nativeVoiceRate} min={0.5} max={2} step={0.1} valueText={`${config.nativeVoiceRate.toFixed(1)}x`} onChange={(value) => updateConfig("nativeVoiceRate", value)} />
             <span className="segmented-label">{t("Native voice style")}</span>
-            <Segmented
-              options={voiceStyles}
-              value={config.nativeVoiceStyle}
-              labelFor={label}
-              onChange={(value) => updateConfig("nativeVoiceStyle", value as VoiceStyle)}
-            />
+            <Segmented options={voiceStyles} value={config.nativeVoiceStyle} labelFor={label} onChange={(value) => updateConfig("nativeVoiceStyle", value as VoiceStyle)} />
           </ControlGroup>
           <ControlGroup title={t("Level")}>
             <div className="choice-grid">
               {levels.map((level) => (
-                <button
-                  key={level}
-                  className={`choice ${config.level === level ? "selected" : ""}`}
-                  onClick={() => updateConfig("level", level)}
-                >
+                <button key={level} className={`choice ${config.level === level ? "selected" : ""}`} onClick={() => updateConfig("level", level)}>
                   <strong>{label(level)}</strong>
                   <span>{level === "Basic" ? label("JLPT N5-N4 / TOPIK 1-2") : level === "Intermediate" ? label("JLPT N3-N2 / TOPIK 3-4") : label("JLPT N1 / TOPIK 5-6")}</span>
                 </button>
@@ -1354,149 +1336,70 @@ function App() {
           <ControlGroup title={t("Topic")}>
             <div className="pill-grid">
               {availableTopics.map((topic) => (
-                <button
-                  key={topic}
-                  className={`pill ${config.topic === topic ? "selected" : ""}`}
-                  onClick={() => updateConfig("topic", topic)}
-                >
-                  {label(topic)}
-                </button>
+                <button key={topic} className={`pill ${config.topic === topic ? "selected" : ""}`} onClick={() => updateConfig("topic", topic)}>{label(topic)}</button>
               ))}
             </div>
           </ControlGroup>
           <ControlGroup title={t("Playback mode")}>
             <div className="choice-grid">
               {modes.map((mode) => (
-                <button
-                  key={mode}
-                  className={`choice ${config.mode === mode ? "selected" : ""}`}
-                  onClick={() => updateConfig("mode", mode)}
-                >
-                  <strong>{label(mode)}</strong>
-                </button>
+                <button key={mode} className={`choice ${config.mode === mode ? "selected" : ""}`} onClick={() => updateConfig("mode", mode)}><strong>{label(mode)}</strong></button>
               ))}
             </div>
           </ControlGroup>
           <ControlGroup title={t("Word order")}>
-            <Segmented
-              options={playbackOrders}
-              value={config.playbackOrder}
-              labelFor={label}
-              onChange={(value) => updateConfig("playbackOrder", value as PlaybackOrder)}
-            />
+            <Segmented options={playbackOrders} value={config.playbackOrder} labelFor={label} onChange={(value) => updateConfig("playbackOrder", value as PlaybackOrder)} />
           </ControlGroup>
-          <div className="progress-card">
-            <div>
-              <span>{t("Finished")}</span>
-              <strong>{progressPercent}%</strong>
-            </div>
-            <progress value={completedWords} max={playlist.length || 1} />
-            <p>
-              {config.nativeLanguage === "Simplified Chinese"
-                ? `${completedWords}/${playlist.length} ${t("in this playlist")} · ${label(config.targetLanguage)}${t("words total")} ${targetLanguageWordCount} · `
-                : `${completedWords}/${playlist.length} ${t("in this playlist")} · ${targetLanguageWordCount} ${label(config.targetLanguage)} ${t("words total")} · `}
-              {config.playbackOrder === "Random"
-                ? t("random order")
-                : config.playbackOrder === "Start from beginning"
-                  ? t("start from first word")
-                : completedWords === 0
-                  ? t("start from first word")
-                : completedWords >= playlist.length
-                  ? t("all words finished")
-                : resumeWord
-                  ? `${t("continue from")} ${resumeWord.targetText}`
-                  : t("all words finished")}
-            </p>
-            <button className="text-button playlist-link" onClick={() => setStep("playlist")}>
-              <List size={16} />
-              {t("View playlist")}
-            </button>
-          </div>
           <ControlGroup title={t("Timers")}>
-            <TimerPicker
-              label={t("Language playback")}
-              value={config.languageMinutes}
-              onChange={(value) => updateConfig("languageMinutes", value)}
-            />
-            <TimerPicker
-              label={t("Background sound")}
-              value={config.backgroundMinutes}
-              onChange={(value) => updateConfig("backgroundMinutes", value)}
-            />
-            <RangeControl
-              icon={<Clock3 size={18} />}
-              label={t("Meaning to target delay")}
-              value={config.targetDelaySeconds}
-              min={0}
-              max={5}
-              step={0.1}
-              valueText={`${config.targetDelaySeconds.toFixed(1)}s`}
-              onChange={(value) => updateConfig("targetDelaySeconds", value)}
-            />
-            <RangeControl
-              icon={<Clock3 size={18} />}
-              label={t("Pause between words")}
-              value={config.pauseSeconds}
-              min={0.5}
-              max={5}
-              step={0.5}
-              valueText={`${config.pauseSeconds.toFixed(1)}s`}
-              onChange={(value) => updateConfig("pauseSeconds", value)}
-            />
+            <TimerPicker label={t("Language playback")} value={config.languageMinutes} onChange={(value) => updateConfig("languageMinutes", value)} />
+            <TimerPicker label={t("Background sound")} value={config.backgroundMinutes} onChange={(value) => updateConfig("backgroundMinutes", value)} />
+            <RangeControl icon={<Clock3 size={18} />} label={t("Meaning to target delay")} value={config.targetDelaySeconds} min={0} max={5} step={0.1} valueText={`${config.targetDelaySeconds.toFixed(1)}s`} onChange={(value) => updateConfig("targetDelaySeconds", value)} />
+            <RangeControl icon={<Clock3 size={18} />} label={t("Pause between words")} value={config.pauseSeconds} min={0.5} max={5} step={0.5} valueText={`${config.pauseSeconds.toFixed(1)}s`} onChange={(value) => updateConfig("pauseSeconds", value)} />
           </ControlGroup>
           <ControlGroup title={t("Background sound")}>
-            <Segmented
-              options={backgroundSounds}
-              value={config.backgroundSound}
-              labelFor={label}
-              onChange={(value) => updateConfig("backgroundSound", value as BackgroundSound)}
-            />
+            <Segmented options={backgroundSounds} value={config.backgroundSound} labelFor={label} onChange={(value) => updateConfig("backgroundSound", value as BackgroundSound)} />
           </ControlGroup>
           <ControlGroup title={t("Volume")}>
-            <RangeControl
-              icon={<Volume2 size={18} />}
-              label={t("Target voice")}
-              value={config.voiceVolume}
-              onChange={(value) => updateConfig("voiceVolume", value)}
-            />
-            <RangeControl
-              icon={<Volume2 size={18} />}
-              label={t("Native voice")}
-              value={config.nativeVoiceVolume}
-              onChange={(value) => updateConfig("nativeVoiceVolume", value)}
-            />
-            <RangeControl
-              icon={<Waves size={18} />}
-              label={t("Background")}
-              value={config.backgroundVolume}
-              onChange={(value) => updateConfig("backgroundVolume", value)}
-            />
+            <RangeControl icon={<Volume2 size={18} />} label={t("Target voice")} value={config.voiceVolume} onChange={(value) => updateConfig("voiceVolume", value)} />
+            <RangeControl icon={<Volume2 size={18} />} label={t("Native voice")} value={config.nativeVoiceVolume} onChange={(value) => updateConfig("nativeVoiceVolume", value)} />
+            <RangeControl icon={<Waves size={18} />} label={t("Background")} value={config.backgroundVolume} onChange={(value) => updateConfig("backgroundVolume", value)} />
           </ControlGroup>
-          <SyncPanel
-            t={t}
-            syncCode={syncCode}
-            syncCodeInput={syncCodeInput}
-            syncStatus={syncStatus}
-            isSyncing={isSyncing}
-            onCodeInput={setSyncCodeInput}
-            onCreate={createTempAccount}
-            onConnect={connectTempAccount}
-            onCopy={copySyncCode}
-            onSave={() => saveSyncData(syncCode, true)}
-          />
-          <div className="sticky-actions">
-            <button className="primary-button" onClick={startSession}>
-              {config.playbackOrder === "Random" ? <Shuffle size={20} /> : <Play size={20} />}
+          <SyncPanel t={t} syncCode={syncCode} syncCodeInput={syncCodeInput} syncStatus={syncStatus} isSyncing={isSyncing} onCodeInput={setSyncCodeInput} onCreate={createTempAccount} onConnect={connectTempAccount} onCopy={copySyncCode} onSave={() => saveSyncData(syncCode, true)} />
+        </div>
+      </aside>
+
+      {step === "setup" && (
+        <section className="screen home-screen">
+          <div className="home-center">
+            <div className="home-badge">
+              <span>{label(config.topic === "all topics" ? config.level : config.topic)}</span>
+            </div>
+            <button className="big-play-button" onClick={startSession}>
+              {config.playbackOrder === "Random" ? <Shuffle size={38} /> : <Play size={38} />}
+            </button>
+            <p className="home-action-label">
               {config.playbackOrder === "Random"
                 ? t("Start random session")
                 : config.playbackOrder === "Start from last left" && completedWords > 0
                   ? t("Continue session")
                   : t("Start session")}
-            </button>
-            <button className="secondary-button" onClick={() => setStep("quiz")} disabled={!lastSessionWords.length}>
-              <BookOpen size={19} />
-              {t("Morning quiz")}
-            </button>
+            </p>
+          </div>
+          <div className="home-footer">
+            <div className="home-progress">
+              <progress value={completedWords} max={playlist.length || 1} />
+              <span>{completedWords}/{playlist.length}</span>
+            </div>
+            <div className="home-shortcuts">
+              <button className="text-button" onClick={() => setStep("playlist")}>
+                <List size={15} />
+                {t("Playlist")}
+              </button>
+              <button className="text-button" onClick={() => setStep("quiz")} disabled={!lastSessionWords.length}>
+                <BookOpen size={15} />
+                {t("Quiz")}
+              </button>
+            </div>
           </div>
         </section>
       )}
