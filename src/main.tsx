@@ -287,6 +287,9 @@ const simplifiedChineseLabels: Record<string, string> = {
   Settings: "设置",
   Playlist: "播放列表",
   Quiz: "测验",
+  "Next batch": "下一批",
+  Shuffle: "随机",
+  Batch: "第",
 };
 
 function translate(text: string, nativeLanguage: NativeLanguage) {
@@ -783,6 +786,7 @@ function App() {
     localStorage.getItem("lingosleep-onboarded") ? "setup" : "onboarding"
   );
   const [playlistSeed, setPlaylistSeed] = useState(0);
+  const [playlistPage, setPlaylistPage] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -840,7 +844,7 @@ function App() {
       });
   }, []);
 
-  const playlist = useMemo(() => buildPlaylist(vocab, config, playlistSeed), [vocab, config, playlistSeed]);
+  const playlist = useMemo(() => buildPlaylist(vocab, config, playlistSeed, playlistPage), [vocab, config, playlistSeed, playlistPage]);
   const playlistKey = useMemo(() => getPlaylistKey(config), [config.targetLanguage, config.level, config.topic]);
   const completedWords = Math.min(playlist.length, Math.max(0, playlistPositions[playlistKey] || 0));
   const resumeWord = playlist[completedWords % (playlist.length || 1)];
@@ -1496,20 +1500,34 @@ function App() {
         <section className="screen stack">
           <div className="playlist-header">
             <h2>{t("Current playlist")}</h2>
-            <button
-              className="secondary-button"
-              onClick={() => {
-                setPlaylistSeed((s) => s + 1);
-                setPlaylistPositions((positions) => ({ ...positions, [playlistKey]: 0 }));
-              }}
-            >
-              <RefreshCw size={16} />
-              {t("Shuffle words")}
-            </button>
+            <div className="playlist-actions">
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setPlaylistSeed(0);
+                  setPlaylistPage((p) => p + 1);
+                  setPlaylistPositions((positions) => ({ ...positions, [playlistKey]: 0 }));
+                }}
+              >
+                {t("Next batch")}
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setPlaylistPage(0);
+                  setPlaylistSeed((s) => s + 1);
+                  setPlaylistPositions((positions) => ({ ...positions, [playlistKey]: 0 }));
+                }}
+              >
+                <RefreshCw size={16} />
+                {t("Shuffle")}
+              </button>
+            </div>
           </div>
           <p className="fine-print">
             {playlist.length} {t("words")} · {label(config.targetLanguage)} · {label(config.level)}
             {config.topic !== allTopics ? ` · ${label(config.topic)}` : ""}
+            {playlistSeed === 0 ? ` · ${t("Batch")} ${playlistPage + 1}` : ""}
           </p>
           <div className="word-list">
             {playlist.map((item, index) => (
@@ -1547,14 +1565,20 @@ function App() {
   );
 }
 
-function buildPlaylist(vocab: VocabItem[], config: SessionConfig, seed = 0) {
+function buildPlaylist(vocab: VocabItem[], config: SessionConfig, seed = 0, page = 0) {
   const languageItems = vocab.filter((item) => item.targetLanguage === config.targetLanguage);
   const levelItems = languageItems.filter((item) => item.level === config.level);
   const topicItems = config.topic === allTopics ? levelItems : levelItems.filter((item) => item.topic === config.topic);
   const backupItems =
     config.topic === allTopics ? languageItems : [...languageItems.filter((item) => item.topic === config.topic), ...levelItems, ...languageItems];
-  const pool = seed > 0 ? seededShuffle([...topicItems, ...backupItems], seed) : [...topicItems, ...backupItems];
-  return takeUnique(pool, playlistBucketSize);
+  if (seed > 0) {
+    const pool = seededShuffle([...topicItems, ...backupItems], seed);
+    return takeUnique(pool, playlistBucketSize);
+  }
+  const uniquePool = takeUnique([...topicItems, ...backupItems], Number.MAX_SAFE_INTEGER);
+  const start = page * playlistBucketSize;
+  const slice = uniquePool.slice(start, start + playlistBucketSize);
+  return slice.length > 0 ? slice : uniquePool.slice(0, playlistBucketSize);
 }
 
 function takeUnique(items: VocabItem[], limit: number) {

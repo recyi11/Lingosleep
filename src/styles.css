@@ -733,6 +733,11 @@ input[type="range"] {
   margin: 0;
 }
 
+.playlist-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .playlist-header .secondary-button {
   font-size: 0.82rem;
   padding: 6px 12px;
