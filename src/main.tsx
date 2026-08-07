@@ -721,21 +721,68 @@ function useBackgroundSound(sound: BackgroundSound, volume: number) {
 
   const gainVolume = () => Math.min(1, volumeRef.current * (sound === "soft rain" ? softRainBoost : 1));
 
+  const crossfadeDuration = 4;
+  const crossfadeCheckInterval = 500;
+  const crossfadeTimerRef = useRef<number | null>(null);
+
+  const startCrossfadeLoop = (audio: HTMLAudioElement) => {
+    if (crossfadeTimerRef.current) clearInterval(crossfadeTimerRef.current);
+    crossfadeTimerRef.current = window.setInterval(() => {
+      if (!audio || audio.paused) return;
+      const remaining = audio.duration - audio.currentTime;
+      if (remaining > crossfadeDuration || !isFinite(audio.duration)) return;
+      // Start crossfade: create next instance
+      clearInterval(crossfadeTimerRef.current!);
+      crossfadeTimerRef.current = null;
+      const next = new Audio(audio.src);
+      next.preload = "auto";
+      next.volume = 0;
+      next.loop = false;
+      void next.play().then(() => {
+        // Fade in next, fade out current
+        const steps = 20;
+        const interval = (crossfadeDuration * 1000) / steps;
+        let step = 0;
+        const targetVol = gainVolume();
+        const fadeTimer = setInterval(() => {
+          step += 1;
+          const progress = step / steps;
+          next.volume = Math.min(1, targetVol * progress);
+          audio.volume = Math.max(0, targetVol * (1 - progress));
+          if (step >= steps) {
+            clearInterval(fadeTimer);
+            audio.pause();
+            audio.currentTime = 0;
+            next.volume = targetVol;
+            audioRef.current = next;
+            startCrossfadeLoop(next);
+          }
+        }, interval);
+      }).catch(() => {
+        // Fallback: just loop normally
+        audio.loop = true;
+      });
+    }, crossfadeCheckInterval);
+  };
+
   const start = () => {
     if (sound === "none" || audioRef.current) return;
     const audioSession = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
     if (audioSession) audioSession.type = "playback";
     const audio = new Audio(rainSoundUrls[sound]!);
-    audio.loop = true;
+    audio.loop = false;
     audio.preload = "auto";
     audio.volume = gainVolume();
     audioRef.current = audio;
-    void audio.play().catch(() => {
+    void audio.play().then(() => {
+      startCrossfadeLoop(audio);
+    }).catch(() => {
       if (audioRef.current === audio) audioRef.current = null;
     });
   };
 
   const stop = () => {
+    if (crossfadeTimerRef.current) { clearInterval(crossfadeTimerRef.current); crossfadeTimerRef.current = null; }
     const audio = audioRef.current;
     if (!audio) return;
     audioRef.current = null;
