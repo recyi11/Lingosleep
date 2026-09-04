@@ -499,7 +499,8 @@ function mapVocabularyRow(row: VocabularyRow): VocabItem | null {
   const targetLanguage =
     row.target_language === "ja" ? "Japanese" : row.target_language === "ko" ? "Korean" : row.target_language === "en" ? "English" : null;
   const level = row.level === "basic" ? "Basic" : row.level === "intermediate" ? "Intermediate" : row.level === "advanced" ? "Advanced" : null;
-  if (!targetLanguage || !level || !topics.includes(row.topic as Topic)) return null;
+  const topic = row.topic === "life" ? "daily life" : row.topic;
+  if (!targetLanguage || !level || !topics.includes(topic as Topic)) return null;
 
   return {
     id: row.id,
@@ -509,7 +510,7 @@ function mapVocabularyRow(row: VocabularyRow): VocabItem | null {
     reading: row.reading || row.target_text,
     romanization: row.romanization || "",
     level,
-    topic: row.topic as Topic,
+    topic: topic as Topic,
     exampleSentence: row.example_text || row.target_text,
     exampleTranslations: {
       English: row.example_translation_en || row.meaning_en,
@@ -518,44 +519,15 @@ function mapVocabularyRow(row: VocabularyRow): VocabItem | null {
   };
 }
 
-const vocabTables: Array<{ table: string; target_language: VocabularyRow["target_language"]; level: VocabularyRow["level"]; topic: string }> = [
-  { table: "vocab_ja_basic_daily_life", target_language: "ja", level: "basic", topic: "daily life" },
-  { table: "vocab_ja_basic_food", target_language: "ja", level: "basic", topic: "food" },
-  { table: "vocab_ja_basic_travel", target_language: "ja", level: "basic", topic: "travel" },
-  { table: "vocab_ja_basic_numbers", target_language: "ja", level: "basic", topic: "numbers" },
-  { table: "vocab_ja_basic_common_verbs", target_language: "ja", level: "basic", topic: "common verbs" },
-  { table: "vocab_ja_intermediate_daily_life", target_language: "ja", level: "intermediate", topic: "daily life" },
-  { table: "vocab_ja_intermediate_food", target_language: "ja", level: "intermediate", topic: "food" },
-  { table: "vocab_ja_intermediate_travel", target_language: "ja", level: "intermediate", topic: "travel" },
-  { table: "vocab_ja_intermediate_work", target_language: "ja", level: "intermediate", topic: "work" },
-  { table: "vocab_ja_intermediate_school", target_language: "ja", level: "intermediate", topic: "school" },
-  { table: "vocab_ja_intermediate_anime_drama", target_language: "ja", level: "intermediate", topic: "anime/drama" },
-  { table: "vocab_ja_advanced_jlpt", target_language: "ja", level: "advanced", topic: "JLPT" },
-  { table: "vocab_ko_basic_daily_life", target_language: "ko", level: "basic", topic: "daily life" },
-  { table: "vocab_ko_basic_food", target_language: "ko", level: "basic", topic: "food" },
-  { table: "vocab_ko_basic_travel", target_language: "ko", level: "basic", topic: "travel" },
-  { table: "vocab_ko_basic_numbers", target_language: "ko", level: "basic", topic: "numbers" },
-  { table: "vocab_ko_basic_common_verbs", target_language: "ko", level: "basic", topic: "common verbs" },
-  { table: "vocab_ko_intermediate_daily_life", target_language: "ko", level: "intermediate", topic: "daily life" },
-  { table: "vocab_ko_intermediate_food", target_language: "ko", level: "intermediate", topic: "food" },
-  { table: "vocab_ko_intermediate_travel", target_language: "ko", level: "intermediate", topic: "travel" },
-  { table: "vocab_ko_intermediate_work", target_language: "ko", level: "intermediate", topic: "work" },
-  { table: "vocab_ko_intermediate_anime_drama", target_language: "ko", level: "intermediate", topic: "anime/drama" },
-  { table: "vocab_ko_intermediate_school", target_language: "ko", level: "intermediate", topic: "school" },
-  { table: "vocab_ko_advanced_topik", target_language: "ko", level: "advanced", topic: "TOPIK" },
-];
-
 async function fetchRemoteVocabulary() {
-  const results = await Promise.all(
-    vocabTables.map(async ({ table, target_language, level, topic }) => {
-      const { data, error } = await supabase
-        .from(table)
-        .select("id,target_text,reading,romanization,meaning_en,meaning_zh_cn,example_text,example_translation_en,example_translation_zh_cn");
-      if (error) { console.warn(`Failed to load ${table}:`, error); return []; }
-      return (data || []).map((row) => ({ ...row, target_language, level, topic }) as VocabularyRow);
-    })
-  );
-  return results.flat().map(mapVocabularyRow).filter(Boolean) as VocabItem[];
+  const { data, error } = await supabase
+    .from("vocabulary")
+    .select("id,target_language,level,topic,target_text,reading,romanization,meaning_en,meaning_zh_cn,example_text,example_translation_en,example_translation_zh_cn");
+  if (error) {
+    console.warn("Failed to load vocabulary:", error);
+    return [];
+  }
+  return (data || []).map((row) => mapVocabularyRow(row as VocabularyRow)).filter(Boolean) as VocabItem[];
 }
 
 function voiceMatchesStyle(voice: SpeechSynthesisVoice, style: VoiceStyle) {
