@@ -855,7 +855,10 @@ function App() {
     void fetchRemoteVocabulary()
       .then((remoteVocab) => {
         if (remoteVocab.length) {
-          setVocab((current) => mergeVocabMetadata(takeUnique([...remoteVocab, ...vocabSeed], Number.MAX_SAFE_INTEGER), current));
+          // Keep the reviewed bundled vocabulary authoritative for shared IDs.
+          // Supabase may still contain legacy/generated rows; use it only to fill
+          // IDs that are not present in the curated local seed.
+          setVocab((current) => mergeVocabMetadata(takeUnique([...vocabSeed, ...remoteVocab], Number.MAX_SAFE_INTEGER), current));
         }
       })
       .catch((error) => {
@@ -1588,8 +1591,7 @@ function buildPlaylist(vocab: VocabItem[], config: SessionConfig, seed = 0, page
   const languageItems = vocab.filter((item) => item.targetLanguage === config.targetLanguage);
   const levelItems = languageItems.filter((item) => item.level === config.level);
   const topicItems = config.topic === allTopics ? levelItems : levelItems.filter((item) => item.topic === config.topic);
-  const backupItems =
-    config.topic === allTopics ? languageItems : [...languageItems.filter((item) => item.topic === config.topic), ...levelItems, ...languageItems];
+  const backupItems = config.topic === allTopics ? levelItems : topicItems;
   if (seed > 0) {
     const pool = seededShuffle([...topicItems, ...backupItems], seed);
     return takeUnique(pool, playlistBucketSize);
