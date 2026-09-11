@@ -1041,10 +1041,14 @@ function App() {
     if (!isSessionActive(sessionToken)) return;
     const sessionConfig = config;
     const targetSpeechText = sessionConfig.targetLanguage === "Japanese" ? item.reading : item.targetText;
-    const targetWordAudioPaths = styledTargetAudioSources(item.id, "word", sessionConfig.targetVoiceStyle);
-    const targetExampleAudioPaths = styledTargetAudioSources(item.id, "example", sessionConfig.targetVoiceStyle);
-    const nativeMeaningAudioPaths = nativeAudioSources(item.id, "meaning", sessionConfig.nativeLanguage, sessionConfig.nativeVoiceStyle);
-    const nativeExampleAudioPaths = nativeAudioSources(item.id, "example", sessionConfig.nativeLanguage, sessionConfig.nativeVoiceStyle);
+    // Audio files are keyed by ID, but several curated entries replaced the
+    // old generated text while retaining the same IDs. Reusing those files can
+    // make the spoken word disagree with the displayed word, so use live TTS
+    // until audio assets are regenerated from the current vocabulary.
+    const targetWordAudioPaths: string[] = [];
+    const targetExampleAudioPaths: string[] = [];
+    const nativeMeaningAudioPaths: string[] = [];
+    const nativeExampleAudioPaths: string[] = [];
     const baseVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
     const targetBoost = sessionConfig.targetLanguage === "Japanese" ? japaneseVoiceBoost : sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
     const voiceVolume = (multiplier = 1) => Math.min(1, baseVolume(multiplier) * targetBoost);
