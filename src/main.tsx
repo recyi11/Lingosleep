@@ -868,6 +868,10 @@ function App() {
 
   const playlist = useMemo(() => buildPlaylist(vocab, config, playlistSeed, playlistPage), [vocab, config, playlistSeed, playlistPage]);
   const playlistKey = useMemo(() => getPlaylistKey(config), [config.targetLanguage, config.level, config.topic]);
+  const playlistItemCount = vocab.filter(
+    (item) => item.targetLanguage === config.targetLanguage && item.level === config.level && (config.topic === allTopics || item.topic === config.topic),
+  ).length;
+  const playlistPageCount = Math.max(1, Math.ceil(playlistItemCount / playlistBucketSize));
   const completedWords = Math.min(playlist.length, Math.max(0, playlistPositions[playlistKey] || 0));
   const resumeWord = playlist[completedWords % (playlist.length || 1)];
   const progressPercent = playlist.length ? Math.round((completedWords / playlist.length) * 100) : 0;
@@ -1527,7 +1531,7 @@ function App() {
                 className="secondary-button"
                 onClick={() => {
                   setPlaylistSeed(0);
-                  setPlaylistPage((p) => p + 1);
+                  setPlaylistPage((p) => (p + 1) % playlistPageCount);
                   setPlaylistPositions((positions) => ({ ...positions, [playlistKey]: 0 }));
                 }}
               >
@@ -1549,7 +1553,7 @@ function App() {
           <p className="fine-print">
             {playlist.length} {t("words")} · {label(config.targetLanguage)} · {label(config.level)}
             {config.topic !== allTopics ? ` · ${label(config.topic)}` : ""}
-            {playlistSeed === 0 ? ` · ${t("Batch")} ${playlistPage + 1}` : ""}
+            {playlistSeed === 0 ? ` · ${t("Batch")} ${playlistPage + 1}/${playlistPageCount}` : ""}
           </p>
           <div className="word-list">
             {playlist.map((item, index) => (
@@ -1597,7 +1601,9 @@ function buildPlaylist(vocab: VocabItem[], config: SessionConfig, seed = 0, page
     return takeUnique(pool, playlistBucketSize);
   }
   const uniquePool = takeUnique([...topicItems, ...backupItems], Number.MAX_SAFE_INTEGER);
-  const start = page * playlistBucketSize;
+  const totalPages = Math.max(1, Math.ceil(uniquePool.length / playlistBucketSize));
+  const normalizedPage = page % totalPages;
+  const start = normalizedPage * playlistBucketSize;
   const slice = uniquePool.slice(start, start + playlistBucketSize);
   return slice.length > 0 ? slice : uniquePool.slice(0, playlistBucketSize);
 }
