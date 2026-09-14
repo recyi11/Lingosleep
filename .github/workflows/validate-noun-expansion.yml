@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - name: Replace duplicate concepts
         shell: python
@@ -39,7 +39,7 @@ jobs:
             '["daily life", "neighborhood", "社区/附近", "近所", "동네"]': '["daily life", "residents association", "居民会", "自治会", "주민회"]',
             '["school", "tuition", "学费", "授業料", "등록금"]': '["school", "student status", "学籍", "学籍", "학적"]',
             '["school", "semester", "学期", "学期", "학기"]': '["school", "timetable", "课程表", "時間割", "시간표"]',
-            '["school", "workshop", "工作坊", "演習", "워크숍"]': '["school", "teaching material", "教材", "教材", "교재"]',
+            '["school", "workshop", "工作坊", "演習", "워크숍"]': '["school", "school regulations", "校规", "校則", "학칙"]',
             '["anime/drama", "screenplay", "剧本", "脚本", "각본"]': '["anime/drama", "storyboard", "分镜", "絵コンテ", "스토리보드"]',
             '["anime/drama", "animation", "作画", "作画", "작화"]': '["anime/drama", "key animation", "原画", "原画", "원화"]',
             '["anime/drama", "spoiler", "剧透", "ネタバレ", "스포일러"]': '["anime/drama", "bonus feature", "特典", "特典", "특전"]',
