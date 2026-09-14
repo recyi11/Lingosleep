@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      EXPECTED_VOCAB_COUNT: '985'
+      EXPECTED_VOCAB_COUNT: '974'
       AUDIO_CONCURRENCY: '4'
       AUDIO_UPLOAD_CONCURRENCY: '12'
       AUDIO_TTS_TIMEOUT_MS: '45000'
