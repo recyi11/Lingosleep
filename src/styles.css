@@ -535,10 +535,30 @@ input[type="range"] {
 }
 
 .player-card h2 {
+  max-width: 100%;
   margin: 0;
   font-size: 4.5rem;
   line-height: 1;
   letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.player-card h2.word-length-5,
+.player-card h2.word-length-6 {
+  font-size: clamp(3rem, 12vw, 4rem);
+}
+
+.player-card h2.word-length-7,
+.player-card h2.word-length-8 {
+  font-size: clamp(2.25rem, 9.5vw, 3.25rem);
+}
+
+@media (max-width: 430px) {
+  .player-card h2.word-length-4 {
+    font-size: clamp(3.4rem, 15vw, 4.25rem);
+  }
 }
 
 .reading,

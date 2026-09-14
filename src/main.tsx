@@ -1461,11 +1461,11 @@ function App() {
           </div>
           <div className="player-card">
             <p className="eyebrow">{label(config.targetLanguage)} {t("review session")}</p>
-            <h2>{currentItem?.targetText || t("Settling in")}</h2>
+            <h2 className={currentItem ? `word-length-${Math.min(currentItem.targetText.length, 8)}` : undefined}>{currentItem?.targetText || t("Settling in")}</h2>
             <p className="reading">{currentItem?.reading || t("Voice will begin after you tap play")}</p>
             {currentItem && (
               <p className="meaning">
-                {currentItem.meanings[config.nativeLanguage]}：{currentItem.romanization}
+                {currentItem.meanings[config.nativeLanguage]}{currentItem.romanization ? `：${currentItem.romanization}` : ""}
               </p>
             )}
             <div className="timers">
