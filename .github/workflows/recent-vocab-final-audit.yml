@@ -1,0 +1,96 @@
+name: Recent vocabulary final audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/recent-vocab-final-audit.yml'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install reading validator
+        run: pip install -q sudachipy sudachidict_core
+      - name: Audit recent expansions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json,re
+          from sudachipy import dictionary
+
+          tok=dictionary.Dictionary().create()
+          def hira(s): return ''.join(chr(ord(c)-0x60) if 'ァ'<=c<='ヶ' else c for c in s)
+          def sudachi_reading(w): return hira(''.join(x.reading_form() for x in tok.tokenize(w)))
+
+          recent=[]
+          # tuple expansion files
+          tuple_specs=[
+            ('src/vocabulary-basic-expansion.ts','basic',8),
+            ('src/vocabulary-noun-expansion.ts','noun',7),
+          ]
+          for fn,label,nfields in tuple_specs:
+            text=Path(fn).read_text()
+            # generic quoted-array parser for data rows; skip type/header arrays
+            for line_no,line in enumerate(text.splitlines(),1):
+              s=line.strip()
+              if not s.startswith('[') or not s.endswith(('],',']')): continue
+              vals=re.findall(r'"((?:[^"\\]|\\.)*)"',s)
+              if label=='basic' and len(vals)>=8:
+                topic,pos,en,zh,ja,jr,jrom,ko=vals[:8]
+                recent.append(dict(file=fn,line=line_no,batch=label,topic=topic,level='Basic',ja=ja,jr=jr,ko=ko,en=en,zh=zh))
+              elif label=='noun' and len(vals)>=7:
+                topic,en,zh,ja,jr,jrom,ko=vals[:7]
+                # infer level from section location
+                prefix='\n'.join(text.splitlines()[:line_no])
+                level='Advanced' if prefix.rfind('advancedRows')>prefix.rfind('intermediateRows') else 'Intermediate'
+                recent.append(dict(file=fn,line=line_no,batch=label,topic=topic,level=level,ja=ja,jr=jr,ko=ko,en=en,zh=zh))
+
+          # direct validated expansion
+          fn='src/vocabulary-validated-expansion.ts'; text=Path(fn).read_text()
+          blocks=re.findall(r'\{\s*id:[\s\S]*?\n\s*\},',text)
+          for i,b in enumerate(blocks,1):
+            def f(name):
+              m=re.search(rf'{name}:\s*"([^"]*)"',b); return m.group(1) if m else ''
+            lang=f('targetLanguage'); target=f('targetText'); level=f('level'); topic=f('topic'); reading=f('reading')
+            if lang=='Japanese':
+              recent.append(dict(file=fn,line=i,batch='validated',topic=topic,level=level,ja=target,jr=reading,ko='',en='',zh=''))
+            elif lang=='Korean':
+              recent.append(dict(file=fn,line=i,batch='validated',topic=topic,level=level,ja='',jr='',ko=target,en='',zh=''))
+
+          # Build pre-recent direct-word inventory to find overlaps accurately.
+          all_words={'Japanese':{},'Korean':{}}
+          direct_files=[p for p in Path('src').glob('vocabulary*.ts') if p.name not in {'vocabulary-basic-expansion.ts','vocabulary-noun-expansion.ts','vocabulary-validated-expansion.ts','vocabulary.ts'}]
+          for p in direct_files:
+            t=p.read_text()
+            for m in re.finditer(r'id:\s*"([^"]+)"[\s\S]*?targetLanguage:\s*"(Japanese|Korean)"[\s\S]*?targetText:\s*"([^"]+)"',t):
+              ident,lang,target=m.groups(); all_words[lang].setdefault(target,[]).append((str(p),ident))
+
+          issues=[]
+          seen={'Japanese':{},'Korean':{}}
+          for x in recent:
+            for lang,key in [('Japanese','ja'),('Korean','ko')]:
+              w=x[key]
+              if not w: continue
+              if re.search(r'[\s,，、;/]',w): issues.append(dict(type='phrase-or-punctuation',lang=lang,word=w,**x))
+              if w in all_words[lang]: issues.append(dict(type='overlap-old',lang=lang,word=w,old=all_words[lang][w],**x))
+              if w in seen[lang]: issues.append(dict(type='duplicate-recent',lang=lang,word=w,previous=seen[lang][w],**x))
+              else: seen[lang][w]=(x['file'],x['line'])
+            if x['ja'] and x['jr']:
+              sr=sudachi_reading(x['ja'])
+              if sr and sr!=x['jr']:
+                issues.append(dict(type='reading-mismatch',lang='Japanese',word=x['ja'],provided=x['jr'],dictionary=sr,**x))
+            hay=(x.get('en','')+' '+x.get('zh','')).lower()
+            if '相关' in hay or re.search(r'\brelated\b',hay): issues.append(dict(type='placeholder-meaning',word=x.get('ja') or x.get('ko'),**x))
+
+          Path('recent-vocab-audit.json').write_text(json.dumps({'count':len(recent),'issues':issues,'recent':recent},ensure_ascii=False,indent=2))
+          print('RECENT_ROWS',len(recent))
+          from collections import Counter
+          c=Counter(i['type'] for i in issues); print('ISSUE_COUNTS',dict(c))
+          for i in issues[:200]: print(json.dumps(i,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recent-vocab-final-audit
+          path: recent-vocab-audit.json
