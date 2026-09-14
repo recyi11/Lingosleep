@@ -1,0 +1,70 @@
+name: Rebuild core vocabulary audio
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rebuild-core-audio.yml'
+      - 'scripts/regenerate-core-audio.mjs'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rebuild-core-vocabulary-audio
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      EXPECTED_VOCAB_COUNT: '985'
+      AUDIO_CONCURRENCY: '4'
+      AUDIO_UPLOAD_CONCURRENCY: '12'
+      AUDIO_TTS_TIMEOUT_MS: '45000'
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Require Supabase Storage write key
+        shell: bash
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ] && [ -z "$SUPABASE_SECRET_KEY" ]; then
+            echo "Missing GitHub Actions secret SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY."
+            exit 1
+          fi
+
+      - name: Install Edge TTS
+        run: python -m pip install --disable-pip-version-check edge-tts
+
+      - name: Regenerate and overwrite all core vocabulary audio
+        run: node scripts/regenerate-core-audio.mjs
+
+      - name: Re-enable Supabase audio only after successful rebuild
+        shell: bash
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
+          git show 123137c4bf2f5c225a9d269d3dd189dd18ab7a04:vite.config.ts > vite.config.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vite.config.ts
+          if git diff --cached --quiet; then
+            echo "Supabase audio is already enabled."
+          else
+            git commit -m "Re-enable Supabase audio after authoritative rebuild"
+            git push origin main
+          fi
