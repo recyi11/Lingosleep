@@ -104,7 +104,7 @@ const targetLanguages: TargetLanguage[] = ["Japanese", "Korean", "English"];
 const japaneseVoiceBoost = 1.3;
 const koreanVoiceBoost = 1.3;
 const softRainBoost = 1.3;
-const playlistBucketSize = 70;
+const recentPlayedHistoryLimit = 200;
 
 const voiceStyles: VoiceStyle[] = ["Female", "Male"];
 const femaleVoiceHints = [
@@ -871,12 +871,22 @@ function App() {
       });
   }, []);
 
-  const playlist = useMemo(() => buildPlaylist(vocab, config, playlistSeed, playlistPage), [vocab, config, playlistSeed, playlistPage]);
+  const recentPlayedIds = useMemo(() => {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const record of history) {
+      for (const id of record.playedIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        ids.push(id);
+        if (ids.length >= recentPlayedHistoryLimit) return ids;
+      }
+    }
+    return ids;
+  }, [history]);
+  const playlist = useMemo(() => buildPlaylist(vocab, config, playlistSeed), [vocab, config, playlistSeed]);
   const playlistKey = useMemo(() => getPlaylistKey(config), [config.targetLanguage, config.level, config.topic]);
-  const playlistItemCount = vocab.filter(
-    (item) => item.targetLanguage === config.targetLanguage && item.level === config.level && (config.topic === allTopics || item.topic === config.topic),
-  ).length;
-  const playlistPageCount = Math.max(1, Math.ceil(playlistItemCount / playlistBucketSize));
+  const playlistPageCount = 1;
   const completedWords = Math.min(playlist.length, Math.max(0, playlistPositions[playlistKey] || 0));
   const resumeWord = playlist[completedWords % (playlist.length || 1)];
   const progressPercent = playlist.length ? Math.round((completedWords / playlist.length) * 100) : 0;
@@ -1113,7 +1123,8 @@ function App() {
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
 
     const started = Date.now();
-    const sessionPlaylist = config.playbackOrder === "Random" ? shuffle(playlist) : playlist;
+    const sessionPlaylist =
+      config.playbackOrder === "Random" ? deprioritizeRecent(shuffle(playlist), recentPlayedIds) : playlist;
     let index = config.playbackOrder === "Start from last left" ? completedWords % sessionPlaylist.length : 0;
     while (isSessionActive(sessionToken) && Date.now() - started < config.languageMinutes * 60 * 1000) {
       const item = sessionPlaylist[index % sessionPlaylist.length];
@@ -1539,8 +1550,8 @@ function App() {
               <button
                 className="secondary-button"
                 onClick={() => {
-                  setPlaylistSeed(0);
-                  setPlaylistPage((p) => (p + 1) % playlistPageCount);
+                  setPlaylistSeed((s) => s + 1);
+                  setPlaylistPage(0);
                   setPlaylistPositions((positions) => ({ ...positions, [playlistKey]: 0 }));
                 }}
               >
@@ -1562,7 +1573,7 @@ function App() {
           <p className="fine-print">
             {playlist.length} {t("words")} · {label(config.targetLanguage)} · {label(config.level)}
             {config.topic !== allTopics ? ` · ${label(config.topic)}` : ""}
-            {playlistSeed === 0 ? ` · ${t("Batch")} ${playlistPage + 1}/${playlistPageCount}` : ""}
+            {playlistSeed === 0 ? "" : ` · ${t("Shuffle")} ${playlistSeed}`}
           </p>
           <div className="word-list">
             {playlist.map((item, index) => (
@@ -1600,21 +1611,26 @@ function App() {
   );
 }
 
-function buildPlaylist(vocab: VocabItem[], config: SessionConfig, seed = 0, page = 0) {
+function buildPlaylist(vocab: VocabItem[], config: SessionConfig, seed = 0) {
   const languageItems = vocab.filter((item) => item.targetLanguage === config.targetLanguage);
   const levelItems = languageItems.filter((item) => item.level === config.level);
   const topicItems = config.topic === allTopics ? levelItems : levelItems.filter((item) => item.topic === config.topic);
-  const backupItems = config.topic === allTopics ? levelItems : topicItems;
-  if (seed > 0) {
-    const pool = seededShuffle([...topicItems, ...backupItems], seed);
-    return takeUnique(pool, playlistBucketSize);
-  }
-  const uniquePool = takeUnique([...topicItems, ...backupItems], Number.MAX_SAFE_INTEGER);
-  const totalPages = Math.max(1, Math.ceil(uniquePool.length / playlistBucketSize));
-  const normalizedPage = page % totalPages;
-  const start = normalizedPage * playlistBucketSize;
-  const slice = uniquePool.slice(start, start + playlistBucketSize);
-  return slice.length > 0 ? slice : uniquePool.slice(0, playlistBucketSize);
+  const uniquePool = takeUnique(topicItems, Number.MAX_SAFE_INTEGER);
+  return seed > 0 ? seededShuffle(uniquePool, seed) : uniquePool;
+}
+
+function deprioritizeRecent(items: VocabItem[], recentIds: string[]) {
+  const recentRank = new Map(recentIds.map((id, index) => [id, index]));
+  return items
+    .map((item, randomIndex) => ({ item, randomIndex, rank: recentRank.get(item.id) }))
+    .sort((a, b) => {
+      const aRecent = a.rank !== undefined;
+      const bRecent = b.rank !== undefined;
+      if (aRecent !== bRecent) return aRecent ? 1 : -1;
+      if (aRecent && bRecent && a.rank !== b.rank) return (b.rank || 0) - (a.rank || 0);
+      return a.randomIndex - b.randomIndex;
+    })
+    .map(({ item }) => item);
 }
 
 function takeUnique(items: VocabItem[], limit: number) {
