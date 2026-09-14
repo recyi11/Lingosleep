@@ -32,12 +32,14 @@ export type VocabItem = {
 
 import { advancedVocab } from "./vocabulary-advanced";
 import { basicVocab } from "./vocabulary-basic";
+import { basicCuratedExpansion } from "./vocabulary-basic-expansion";
 import { intermediateVocab } from "./vocabulary-intermediate";
 import { advancedExpansion, intermediateExpansion } from "./vocabulary-expansion";
 import { advancedNounExpansion, intermediateNounExpansion } from "./vocabulary-noun-expansion";
 
 export const vocabSeed: VocabItem[] = [
   ...basicVocab,
+  ...basicCuratedExpansion,
   ...intermediateVocab,
   ...intermediateExpansion,
   ...intermediateNounExpansion,
