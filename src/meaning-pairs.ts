@@ -534,7 +534,7 @@ function expandEnglish(value: string) {
     if (englishAliases[last]) return `${value}, ${[...parts.slice(0, -1), englishAliases[last]].join(" ")}`;
   }
 
-  return `${value}, related ${value}`;
+  return value;
 }
 
 function expandChinese(value: string) {
@@ -546,7 +546,7 @@ function expandChinese(value: string) {
     if (value.startsWith(modifier) && value.length > modifier.length) return `${value}，${alias}${value.slice(modifier.length)}`;
   }
 
-  return `${value}，相关${value}`;
+  return value;
 }
 
 export function ensureMeaningPair(value: string, language: NativeLanguage) {

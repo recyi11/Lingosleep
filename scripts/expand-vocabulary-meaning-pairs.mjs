@@ -533,7 +533,7 @@ function expandEnglish(value) {
     if (modifierAliases[first]) return `${value}, ${[modifierAliases[first], ...parts.slice(1)].join(" ")}`;
     if (englishAliases[last]) return `${value}, ${[...parts.slice(0, -1), englishAliases[last]].join(" ")}`;
   }
-  return `${value}, related ${value}`;
+  return value;
 }
 
 function expandChinese(value) {
@@ -543,7 +543,7 @@ function expandChinese(value) {
   for (const [modifier, alias] of Object.entries(chineseModifierAliases)) {
     if (value.startsWith(modifier) && value.length > modifier.length) return `${value}，${alias}${value.slice(modifier.length)}`;
   }
-  return `${value}，相关${value}`;
+  return value;
 }
 
 for (const file of files) {
