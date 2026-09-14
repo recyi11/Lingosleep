@@ -1,0 +1,101 @@
+name: Vocabulary audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vocab-audit.yml'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit bundled vocabulary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          from collections import Counter, defaultdict
+
+          files = [Path('src/vocabulary-basic.ts'), Path('src/vocabulary-intermediate.ts'), Path('src/vocabulary-advanced.ts')]
+          entries = []
+
+          for path in files:
+              lines = path.read_text().splitlines()
+              buf = []
+              depth = 0
+              active = False
+              for line in lines:
+                  stripped = line.lstrip()
+                  if not active and stripped.startswith('{') and 'id:' in line:
+                      active = True
+                      buf = [line]
+                      depth = line.count('{') - line.count('}')
+                      if depth == 0:
+                          block = '\n'.join(buf)
+                          active = False
+                      else:
+                          continue
+                  elif active:
+                      buf.append(line)
+                      depth += line.count('{') - line.count('}')
+                      if depth != 0:
+                          continue
+                      block = '\n'.join(buf)
+                      active = False
+                  else:
+                      continue
+
+                  def field(name):
+                      m = re.search(rf'{name}:\s*"([^"]*)"', block)
+                      return m.group(1) if m else ''
+                  mzh = re.search(r'"Simplified Chinese":\s*"([^"]*)"', block)
+                  men = re.search(r'meanings:\s*\{\s*English:\s*"([^"]*)"', block)
+                  entries.append({
+                      'file': str(path),
+                      'id': field('id'),
+                      'lang': field('targetLanguage'),
+                      'target': field('targetText'),
+                      'reading': field('reading'),
+                      'roman': field('romanization'),
+                      'level': field('level'),
+                      'topic': field('topic'),
+                      'example': field('exampleSentence'),
+                      'zh': mzh.group(1) if mzh else '',
+                      'en': men.group(1) if men else '',
+                  })
+
+          print(f'TOTAL_ENTRIES={len(entries)}')
+          groups = Counter((e['lang'],e['level'],e['topic']) for e in entries)
+          print('GROUP_COUNTS')
+          for k,v in sorted(groups.items()): print(k, v)
+
+          suspicious=[]
+          for e in entries:
+              reasons=[]
+              hay = ' '.join([e['target'], e['zh'], e['en']]).lower()
+              if any(x in e['zh'] for x in ['相关','有关','关联']): reasons.append('zh-related')
+              if any(x in hay for x in [' related ', 'related ', ' associated ', 'associated ', ' relevant ', 'relevant ']): reasons.append('en-related')
+              if 'を復習します' in e['example'] or '표현을 복습해요' in e['example']: reasons.append('template-review')
+              if not e['roman']: reasons.append('missing-romanization')
+              # known mechanical-generation shapes; intentionally conservative
+              ja_mods = ['新しい','古い','近い','遠い','次の','大きい','小さい','静かな','便利な','有名な','安全な','安い','高い','早い','遅い','予約した','朝の','夜の','毎日の','簡単な','大切な','忙しい','楽しい','近くの','家の','週末の','温かい','冷たい','甘い','辛い','好きな','人気の','特別な','季節の','発酵した','焼いた','煮た','蒸した','濃い','薄い','新鮮な','伝統的な','家庭の','健康的な','特製の','地域の','上品な','予約済み','混雑した','快適な','格安','長距離','定期的な','急な','予定外の','効率的な','面倒な','丁寧な','自然な','現実的な','個人的な','家族の','近所の','将来の','最近の','必要な','余分な','詳細な','簡潔な','正式な','実践的な','基本的な','専門的な','難しい','感動的な','意外な','印象的な']
+              ja_nouns = ['時間','散歩','予定','肉','魚','果物','野菜','パン','牛乳','部屋','服','店','仕事','休み','お茶','スープ','弁当','デザート','駅','空港','ホテル','バス','電車','道','地図','出口','入口','タクシー','料理','定食','だし','味付け','食感','献立','材料','香り','盛り付け','保存食','便','路線','乗車券','案内所','手荷物','時刻表','宿泊先','乗り場','目的地','保険','習慣','手続き','連絡','片付け','支払い','用事','相談','準備','調整','確認','会議','資料','提案','依頼','共有','締切','担当','授業','課題','試験','発表','研究','講義','成績','出席','教材','質問','作品','場面','台詞','主人公','脚本','演出','展開','結末','主題歌']
+              if e['lang']=='Japanese' and any(e['target']==a+b for a in ja_mods for b in ja_nouns): reasons.append('ja-mechanical-combo')
+              ko_mods = ['새','가까운','먼','다음','오래된','큰','작은','조용한','편리한','유명한','안전한','싼','이른','늦은','예약한','아침','밤','매일','간단한','중요한','바쁜','즐거운','근처','집','주말','적은','많은','반','모든','마지막','따뜻한','차가운','단','매운','좋아하는','인기 있는','특별한','제철','발효된','구운','조린','찐','진한','담백한','신선한','전통적인','가정식','건강한','특제','지역','정갈한','국제','국내','편도','왕복','직행','환승','이른 아침','심야','관광','출장','예약된','혼잡한','편안한','저가','장거리']
+              ko_nouns = ['시간','산책','계획','고기','생선','과일','채소','빵','우유','방','옷','가게','일','휴식','차','국','도시락','디저트','역','공항','호텔','버스','전철','길','지도','출구','입구','택시','요리','정식','육수','양념','식감','식단','재료','향','담음새','저장식','편','노선','승차권','안내소','수하물','시간표','숙소','탑승장','목적지','보험']
+              if e['lang']=='Korean' and any(e['target']==a+' '+b for a in ko_mods for b in ko_nouns): reasons.append('ko-mechanical-combo')
+              if reasons: suspicious.append((e,reasons))
+
+          print('SUSPICIOUS')
+          for e,reasons in suspicious:
+              print('|'.join([e['id'], e['lang'], e['level'], e['topic'], e['target'], e['en'], e['zh'], ','.join(reasons)]))
+          print('SUSPICIOUS_COUNT', len(suspicious))
+
+          print('DUPLICATE_TARGETS_WITHIN_GROUP')
+          by = defaultdict(list)
+          for e in entries: by[(e['lang'],e['level'],e['topic'],e['target'])].append(e['id'])
+          for k,ids in sorted(by.items()):
+              if len(ids)>1: print(k, ids)
+          PY
