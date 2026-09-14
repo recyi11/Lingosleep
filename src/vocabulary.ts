@@ -34,14 +34,14 @@ import { advancedVocab } from "./vocabulary-advanced";
 import { basicVocab } from "./vocabulary-basic";
 import { intermediateVocab } from "./vocabulary-intermediate";
 import { advancedExpansion, intermediateExpansion } from "./vocabulary-expansion";
-import { bulkAdvancedExpansion, bulkIntermediateExpansion } from "./vocabulary-expansion-500";
+import { advancedNounExpansion, intermediateNounExpansion } from "./vocabulary-noun-expansion";
 
 export const vocabSeed: VocabItem[] = [
   ...basicVocab,
   ...intermediateVocab,
   ...intermediateExpansion,
-  ...bulkIntermediateExpansion,
+  ...intermediateNounExpansion,
   ...advancedVocab,
   ...advancedExpansion,
-  ...bulkAdvancedExpansion,
+  ...advancedNounExpansion,
 ];
