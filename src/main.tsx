@@ -863,7 +863,7 @@ function App() {
           // Keep the reviewed bundled vocabulary authoritative for shared IDs.
           // Supabase may still contain legacy/generated rows; use it only to fill
           // IDs that are not present in the curated local seed.
-          setVocab((current) => mergeVocabMetadata(takeUnique([...vocabSeed, ...remoteVocab], Number.MAX_SAFE_INTEGER), current));
+          setVocab((current) => mergeVocabMetadata(takeUniqueVocabulary([...vocabSeed, ...remoteVocab]), current));
         }
       })
       .catch((error) => {
@@ -1641,6 +1641,25 @@ function takeUnique(items: VocabItem[], limit: number) {
     seen.add(item.id);
     selected.push(item);
     if (selected.length === limit) break;
+  }
+  return selected;
+}
+
+function takeUniqueVocabulary(items: VocabItem[]) {
+  const seenIds = new Set<string>();
+  const seenWords = new Set<string>();
+  const selected: VocabItem[] = [];
+  for (const item of items) {
+    const wordKey = [
+      item.targetLanguage,
+      item.level,
+      item.topic,
+      item.targetText.normalize("NFKC").trim().toLocaleLowerCase(),
+    ].join(":");
+    if (seenIds.has(item.id) || seenWords.has(wordKey)) continue;
+    seenIds.add(item.id);
+    seenWords.add(wordKey);
+    selected.push(item);
   }
   return selected;
 }
