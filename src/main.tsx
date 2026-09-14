@@ -839,6 +839,11 @@ function App() {
     }
   }, [availableTopics, config.topic]);
 
+  useEffect(() => {
+    setPlaylistSeed(0);
+    setPlaylistPage(0);
+  }, [config.targetLanguage, config.level, config.topic]);
+
   useEffect(() => localStorage.setItem("lingosleep-config", JSON.stringify(config)), [config]);
   useEffect(() => localStorage.setItem("lingosleep-vocab", JSON.stringify(vocab)), [vocab]);
   useEffect(() => localStorage.setItem("lingosleep-history", JSON.stringify(history)), [history]);
