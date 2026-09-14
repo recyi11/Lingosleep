@@ -34,4 +34,5 @@ jobs:
           git add src/vocabulary-noun-expansion.ts src/main.tsx src/styles.css
           git diff --cached --quiet && exit 0
           git commit -m "Fix noun readings and mobile word layout"
+          git pull --rebase origin main
           git push origin main
