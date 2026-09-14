@@ -1,0 +1,104 @@
+name: Refine noun expansion
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/refine-noun-expansion.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refine questionable noun entries
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/vocabulary-noun-expansion.ts')
+          text = path.read_text()
+          replacements = {
+            '["travel", "boarding order", "登机顺序", "搭乗順", "とうじょうじゅん", "toujoujun", "탑승순서"]': '["travel", "boarding", "登机", "搭乗", "とうじょう", "toujou", "탑승"]',
+            '["travel", "departure board", "出发信息牌", "出発案内", "しゅっぱつあんない", "shuppatsuannai", "출발안내"]': '["travel", "information board", "信息牌", "案内板", "あんないばん", "annaiban", "안내판"]',
+            '["travel", "arrival hall", "到达大厅", "到着ロビー", "とうちゃくろびー", "touchakurobii", "도착로비"]': '["travel", "lobby", "大厅", "ロビー", "ろびー", "robii", "로비"]',
+            '["anime/drama", "character design", "角色设计", "キャラデザイン", "きゃらでざいん", "kyaradezain", "캐릭터디자인"]': '["anime/drama", "design", "设计", "デザイン", "でざいん", "dezain", "디자인"]',
+            '["anime/drama", "premiere", "首播", "初放送", "はつほうそう", "hatsuhousou", "첫방송"]': '["anime/drama", "premiere", "首演", "初演", "しょえん", "shoen", "초연"]',
+            '["work", "delegation", "授权委托", "権限委譲", "けんげんいじょう", "kengen\'ijou", "권한위임"]': '["work", "delegation", "委托", "委任", "いにん", "inin", "위임"]',
+            '["work", "latency", "延迟", "レイテンシ", "れいてんし", "reitenshi", "지연시간"]': '["work", "latency", "延迟", "レイテンシ", "れいてんし", "reitenshi", "레이턴시"]',
+            '["work", "root cause", "根因", "根本原因", "こんぽんげんいん", "konpongen\'in", "근본원인"]': '["work", "diagnosis", "诊断", "診断", "しんだん", "shindan", "진단"]',
+            '["work", "remediation", "整改", "是正措置", "ぜせいそち", "zeseisochi", "개선조치"]': '["work", "restoration", "恢复", "復旧", "ふっきゅう", "fukkyuu", "복구"]',
+            '["travel", "deportation", "驱逐出境", "退去強制", "たいきょきょうせい", "taikyokyousei", "강제퇴거"]': '["travel", "expulsion", "驱逐", "追放", "ついほう", "tsuihou", "추방"]',
+            '["travel", "inadmissibility", "不准入境", "入国不許可", "にゅうこくふきょか", "nyuukokufukyoka", "입국불허"]': '["travel", "disallowance", "不许可", "不許可", "ふきょか", "fukyoka", "불허"]',
+            '["travel", "residency", "居留资格", "在留資格", "ざいりゅうしかく", "zairyuushikaku", "체류자격"]': '["travel", "residence", "居留", "在留", "ざいりゅう", "zairyuu", "체류"]',
+            '["travel", "sponsorship", "担保/资助", "身元保証", "みもとほしょう", "mimotohoshou", "신원보증"]': '["travel", "guarantee", "担保", "保証", "ほしょう", "hoshou", "보증"]',
+            '["travel", "manifest", "舱单/旅客名单", "旅客名簿", "りょきゃくめいぼ", "ryokyakumeibo", "승객명단"]': '["travel", "roster", "名册", "名簿", "めいぼ", "meibo", "명단"]',
+            '["travel", "contraband", "违禁品", "禁制品", "きんせいひん", "kinseihin", "금제품"]': '["travel", "contraband", "走私品", "密輸品", "みつゆひん", "mitsuyuhin", "밀수품"]',
+            '["travel", "alternate airport", "备降机场", "代替空港", "だいがえくうこう", "daigaekuukou", "대체공항"]': '["travel", "reserve", "备用", "予備", "よび", "yobi", "예비"]',
+            '["travel", "taxiway", "滑行道", "誘導路", "ゆうどうみち", "yuudoumichi", "유도로"]': '["travel", "taxiway", "滑行道", "誘導路", "ゆうどうろ", "yuudouro", "유도로"]',
+            '["travel", "jet bridge", "廊桥", "搭乗橋", "とうじょうはし", "toujouhashi", "탑승교"]': '["travel", "jet bridge", "廊桥", "ボーディングブリッジ", "ぼーでぃんぐぶりっじ", "boodinguburijji", "탑승교"]',
+            '["daily life", "census", "人口普查", "国勢調査", "こくせいちょうさ", "kokuseichousa", "인구조사"]': '["daily life", "census", "人口普查", "センサス", "せんさす", "sensasu", "총조사"]',
+            '["school", "citation index", "引用指数", "引用指数", "いんようしすう", "inyoushisuu", "인용지수"]': '["school", "metric", "指标", "指標", "しひょう", "shihyou", "지표"]',
+            '["school", "rubric", "评分标准", "評価基準", "ひょうかきじゅん", "hyoukakijun", "평가기준"]': '["school", "rubric", "评分量规", "ルーブリック", "るーぶりっく", "ruuburikku", "루브릭"]',
+            '["school", "fellowship", "研究奖学金", "研究奨励金", "けんきゅうしょうれいきん", "kenkyuushoureikin", "펠로십"]': '["school", "fellowship", "研究奖学金", "フェローシップ", "ふぇろーしっぷ", "ferooshippu", "펠로십"]',
+            '["school", "tenure", "终身教职", "終身在職権", "しゅうしんざいしょくけん", "shuushinzaishokuken", "정년보장"]': '["school", "tenure", "终身教职", "テニュア", "てにゅあ", "tenyua", "테뉴어"]',
+            '["school", "protocol", "研究规程", "手順書", "てじゅんしょ", "tejunsho", "프로토콜"]': '["school", "protocol", "研究规程", "プロトコル", "ぷろとこる", "purotokoru", "프로토콜"]',
+          }
+          missing=[]
+          for old,new in replacements.items():
+            if old not in text:
+              missing.append(old)
+            else:
+              text=text.replace(old,new,1)
+          if missing:
+            print('Missing replacements:')
+            print('\n'.join(missing))
+            raise SystemExit(1)
+          path.write_text(text)
+          PY
+      - name: Audit duplicates and word shape
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          files=list(Path('src').glob('vocabulary*.ts'))
+          seen={}
+          dup=[]
+          # Direct entries
+          for p in files:
+            text=p.read_text()
+            for lang,target in re.findall(r'targetLanguage:\s*"(Japanese|Korean)"[^\n]*?targetText:\s*"([^"]+)"', text):
+              key=(lang,target)
+              if key in seen: dup.append((key,seen[key],str(p)))
+              else: seen[key]=str(p)
+          # Noun expansion tuple entries
+          p=Path('src/vocabulary-noun-expansion.ts')
+          text=p.read_text()
+          for m in re.finditer(r'^\s*\["[^"]+",\s*"[^"]+",\s*"[^"]+",\s*"([^"]+)",\s*"[^"]+",\s*"[^"]+",\s*"([^"]+)"\],?$', text, re.M):
+            ja,ko=m.groups()
+            for lang,target in [('Japanese',ja),('Korean',ko)]:
+              key=(lang,target)
+              if key in seen and seen[key] != str(p): dup.append((key,seen[key],str(p)))
+              else: seen[key]=str(p)
+              if re.search(r'\s', target):
+                raise SystemExit(f'Phrase-like whitespace in noun expansion: {lang} {target}')
+          if dup:
+            print('DUPLICATES')
+            for d in dup: print(d)
+            raise SystemExit(1)
+          print('noun expansion duplicate/shape audit passed')
+          PY
+      - name: Verify build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit refinement
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/vocabulary-noun-expansion.ts
+          git commit -m "Refine noun expansion to standalone vocabulary"
+          git push origin HEAD:main
