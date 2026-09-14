@@ -1,0 +1,34 @@
+name: Validate vocabulary expansion
+
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-vocab-expansion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Validate expansion IDs
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const text = fs.readFileSync('src/vocabulary-expansion.ts', 'utf8');
+          const ids = [...text.matchAll(/id: "([^"]+)"/g)].map((m) => m[1]);
+          if (ids.length !== 120) throw new Error(`Expected 120 expansion entries, found ${ids.length}`);
+          if (new Set(ids).size !== ids.length) throw new Error('Duplicate expansion IDs found');
+          console.log(`Validated ${ids.length} unique expansion IDs`);
+          NODE
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
