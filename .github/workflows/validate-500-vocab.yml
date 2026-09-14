@@ -1,0 +1,39 @@
+name: Validate 500 vocabulary expansion
+
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-500-vocab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Validate vocabulary rows
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          text = Path('src/vocabulary-expansion-500.ts').read_text()
+          inter = text.split('const intermediateRows: BulkRow[] = [', 1)[1].split('];', 1)[0]
+          adv = text.split('const advancedRows: BulkRow[] = [', 1)[1].split('];', 1)[0]
+          ic = len(re.findall(r'^  \[', inter, re.M))
+          ac = len(re.findall(r'^  \[', adv, re.M))
+          assert ic == 125, f'intermediate concepts={ic}, expected 125'
+          assert ac == 125, f'advanced concepts={ac}, expected 125'
+          ids = [f'{lang}-bulk-{level}-{i:03d}' for level in ('intermediate','advanced') for i in range(1,126) for lang in ('ja','ko')]
+          assert len(ids) == 500 and len(set(ids)) == 500
+          print(f'validated {ic*2} intermediate + {ac*2} advanced = {(ic+ac)*2} entries')
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
