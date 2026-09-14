@@ -1,0 +1,60 @@
+name: Patch vocabulary normalization workflow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-normalize-vocab-workflow.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch generator correctness and semantic alignment
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/normalize-recent-vocabulary.yml')
+          t=p.read_text()
+          replacements={
+            "arr_start=basic_text.index('[',start); arr_end=basic_text.index('];',arr_start)": "arr_start=basic_text.index('[',basic_text.index('=',start)); arr_end=basic_text.index('];',arr_start)",
+            "s=nt.index(f'const {name}: NounPair[] = ['); a=nt.index('[',s)": "s=nt.index(f'const {name}: NounPair[] = ['); a=nt.index('[',nt.index('=',s))",
+            "s=nt.index('const intermediateNouns: NounPair[] = ['); a=nt.index('[',s); e=nt.index('];',a)": "s=nt.index('const intermediateNouns: NounPair[] = ['); a=nt.index('[',nt.index('=',s)); e=nt.index('];',a)",
+            'Intermediate|輸入|수입품|进口|import': 'Intermediate|輸入|수입|进口|import',
+            'Intermediate|保険|보험료|保险|insurance': 'Intermediate|保険|보험|保险|insurance',
+            'Intermediate|文化|문화재|文化|culture': 'Intermediate|文化|문화|文化|culture',
+            'Advanced|改革|개혁안|改革|reform': 'Advanced|改革|개혁|改革|reform',
+            'Advanced|改正|개정안|修订|amendment': 'Advanced|改正|개정|修订|amendment',
+            'Advanced|独立|독립성|独立|independence': 'Advanced|独立|독립|独立|independence',
+            'Advanced|支援|지원책|支援|support': 'Advanced|支援|지원|支援|support',
+            'Advanced|対応|대응책|应对|response': 'Advanced|対応|대응|应对|response',
+            'Advanced|安全性|안전성평가|安全性|safety': 'Advanced|安全性|안전성|安全性|safety',
+            'Advanced|報道|보도자료|报道|reporting': 'Advanced|報道|보도|报道|reporting',
+            'Advanced|上映|상영작|上映|screening': 'Advanced|上映|상영|上映|screening',
+            'Advanced|距離|거리감|距离|distance': 'Advanced|距離|거리|距离|distance',
+            'travel|navigation|导航|案内|あんない|annai|길안내': 'travel|guidance|引导|案内|あんない|annai|안내',
+            'anime/drama|performance|表演|演技|えんぎ|engi|연기력': 'anime/drama|animation drawing|作画|作画|さくが|sakuga|작화',
+            'work|orchestration|编排|編成|へんせい|hensei|오케스트레이션': 'work|coordination|协调|調整|ちょうせい|chousei|조정',
+            'school|paradigm|范式|範型|はんけい|hankei|패러다임': 'school|paradigm|范式|パラダイム|ぱらだいむ|paradaimu|패러다임',
+          }
+          missing=[]
+          for old,new in replacements.items():
+            if old not in t: missing.append(old)
+            else: t=t.replace(old,new,1)
+          if missing:
+            print('Missing patterns:')
+            print('\n'.join(missing))
+            raise SystemExit(1)
+          p.write_text(t)
+          PY
+      - name: Commit workflow patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/normalize-recent-vocabulary.yml
+          git commit -m "Fix vocabulary normalization generator"
+          git push origin HEAD:main
