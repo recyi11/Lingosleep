@@ -1,0 +1,150 @@
+name: Fix noun readings and mobile word layout
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-noun-reading-layout.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install Japanese reading converter
+        run: pip install pykakasi
+      - name: Add readings and responsive word sizing
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          from pykakasi import kakasi
+
+          vocab_path = Path('src/vocabulary-noun-expansion.ts')
+          text = vocab_path.read_text()
+          original = text
+
+          # Expand NounPair so bundled Japanese entries carry real kana readings and romaji.
+          old_type = 'type NounPair = [topic: Topic, en: string, zh: string, ja: string, ko: string];'
+          new_type = 'type NounPair = [topic: Topic, en: string, zh: string, ja: string, jaReading: string, jaRomanization: string, ko: string];'
+          assert old_type in text, 'NounPair type shape changed unexpectedly'
+          text = text.replace(old_type, new_type, 1)
+
+          old_sig = 'const makePair = (level: "Intermediate" | "Advanced", index: number, [topic, en, zh, ja, ko]: NounPair): VocabItem[] => {'
+          new_sig = 'const makePair = (level: "Intermediate" | "Advanced", index: number, [topic, en, zh, ja, jaReading, jaRomanization, ko]: NounPair): VocabItem[] => {'
+          assert old_sig in text, 'makePair signature changed unexpectedly'
+          text = text.replace(old_sig, new_sig, 1)
+
+          old_ja = 'targetLanguage: "Japanese", targetText: ja, meanings: { English: en, "Simplified Chinese": zh }, reading: ja, romanization: "", level, topic,'
+          new_ja = 'targetLanguage: "Japanese", targetText: ja, meanings: { English: en, "Simplified Chinese": zh }, reading: jaReading, romanization: jaRomanization, level, topic,'
+          assert old_ja in text, 'Japanese generated item shape changed unexpectedly'
+          text = text.replace(old_ja, new_ja, 1)
+
+          conv = kakasi()
+          row_re = re.compile(r'^(\s*)\["([^"]+)",\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]+)",\s*"([^"]+)"\],\s*$', re.M)
+          matches = list(row_re.finditer(text))
+          assert len(matches) == 250, f'Expected 250 noun concepts before reading expansion, found {len(matches)}'
+
+          def readings(value: str):
+            parts = conv.convert(value)
+            hira = ''.join(p['hira'] for p in parts)
+            roma = ''.join(p['hepburn'] for p in parts)
+            return hira, roma
+
+          def expand(match):
+            indent, topic, en, zh, ja, ko = match.groups()
+            hira, roma = readings(ja)
+            return f'{indent}["{topic}", "{en}", "{zh}", "{ja}", "{hira}", "{roma}", "{ko}"],'
+
+          text = row_re.sub(expand, text)
+          assert text != original
+          vocab_path.write_text(text)
+
+          # Validate generated readings: no CJK ideographs should remain in Japanese readings.
+          updated = vocab_path.read_text()
+          expanded_re = re.compile(r'^\s*\["([^"]+)",\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"\],\s*$', re.M)
+          rows = expanded_re.findall(updated)
+          assert len(rows) == 250, f'Expected 250 expanded concepts, found {len(rows)}'
+          cjk = re.compile(r'[一-龯々]')
+          bad = [(ja, reading) for _, _, _, ja, reading, _, _ in rows if cjk.search(reading)]
+          assert not bad, f'Readings still contain kanji: {bad[:10]}'
+          assert all(romanization.strip() for _, _, _, _, _, romanization, _ in rows), 'Blank Japanese romanization found'
+
+          # Verify the reported word specifically when present.
+          for _, _, _, ja, reading, romanization, _ in rows:
+            if ja == '利害関係者':
+              assert reading == 'りがいかんけいしゃ', (ja, reading)
+              assert romanization == 'rigaikankeisha', (ja, romanization)
+
+          main_path = Path('src/main.tsx')
+          main = main_path.read_text()
+          old_heading = '<h2>{currentItem?.targetText || t("Settling in")}</h2>'
+          new_heading = '<h2 className={currentItem ? `word-length-${Math.min(currentItem.targetText.length, 8)}` : undefined}>{currentItem?.targetText || t("Settling in")}</h2>'
+          assert old_heading in main, 'Player heading markup changed unexpectedly'
+          main = main.replace(old_heading, new_heading, 1)
+
+          old_meaning = '{currentItem.meanings[config.nativeLanguage]}：{currentItem.romanization}'
+          new_meaning = '{currentItem.meanings[config.nativeLanguage]}{currentItem.romanization ? `：${currentItem.romanization}` : ""}'
+          assert old_meaning in main, 'Player meaning markup changed unexpectedly'
+          main = main.replace(old_meaning, new_meaning, 1)
+          main_path.write_text(main)
+
+          css_path = Path('src/styles.css')
+          css = css_path.read_text()
+          old_css = '''.player-card h2 {
+  margin: 0;
+  font-size: 4.5rem;
+  line-height: 1;
+  letter-spacing: 0;
+}'''
+          new_css = '''.player-card h2 {
+  max-width: 100%;
+  margin: 0;
+  font-size: 4.5rem;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+/* Keep short vocabulary visually prominent while fitting longer CJK terms on phones. */
+.player-card h2.word-length-5,
+.player-card h2.word-length-6 {
+  font-size: clamp(3rem, 12vw, 4rem);
+}
+
+.player-card h2.word-length-7,
+.player-card h2.word-length-8 {
+  font-size: clamp(2.25rem, 9.5vw, 3.25rem);
+}
+
+@media (max-width: 430px) {
+  .player-card h2.word-length-4 {
+    font-size: clamp(3.4rem, 15vw, 4.25rem);
+  }
+}'''
+          assert old_css in css, 'Player heading CSS changed unexpectedly'
+          css = css.replace(old_css, new_css, 1)
+          css_path.write_text(css)
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/vocabulary-noun-expansion.ts src/main.tsx src/styles.css
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix noun readings and mobile word layout"
+          git push origin main
