@@ -1,0 +1,55 @@
+name: Validate noun expansion
+
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-noun-expansion.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Validate noun expansion
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+
+          noun_text = Path('src/vocabulary-noun-expansion.ts').read_text()
+          inter = noun_text.split('const intermediateNouns: NounPair[] = [', 1)[1].split('];', 1)[0]
+          adv = noun_text.split('const advancedNouns: NounPair[] = [', 1)[1].split('];', 1)[0]
+          row_re = re.compile(r'^\s*\["([^"]+)",\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"\],\s*$', re.M)
+          inter_rows = row_re.findall(inter)
+          adv_rows = row_re.findall(adv)
+          assert len(inter_rows) == 125, f'Intermediate concept count: {len(inter_rows)}'
+          assert len(adv_rows) == 125, f'Advanced concept count: {len(adv_rows)}'
+
+          existing = {'Intermediate': {'Japanese': set(), 'Korean': set()}, 'Advanced': {'Japanese': set(), 'Korean': set()}}
+          object_re = re.compile(r'targetLanguage:\s*"(Japanese|Korean)".*?targetText:\s*"([^"]+)".*?level:\s*"(Intermediate|Advanced)"', re.S)
+          for name in ['src/vocabulary-intermediate.ts', 'src/vocabulary-advanced.ts', 'src/vocabulary-expansion.ts']:
+            text = Path(name).read_text()
+            for lang, word, level in object_re.findall(text):
+              existing[level][lang].add(word)
+
+          dupes = []
+          for level, rows in [('Intermediate', inter_rows), ('Advanced', adv_rows)]:
+            for _, _, _, ja, ko in rows:
+              if ja in existing[level]['Japanese']:
+                dupes.append(f'{level} Japanese: {ja}')
+              if ko in existing[level]['Korean']:
+                dupes.append(f'{level} Korean: {ko}')
+          if dupes:
+            print('DUPLICATES AGAINST EXISTING VOCAB:')
+            print('\n'.join(dupes))
+            raise SystemExit(2)
+          print('Validated 250 concepts / 500 entries with no target-text duplicates against existing Intermediate/Advanced vocab.')
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
