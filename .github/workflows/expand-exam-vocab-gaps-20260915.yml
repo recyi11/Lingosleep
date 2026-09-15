@@ -1,0 +1,171 @@
+name: Expand exam vocabulary gaps 2026-09-15
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/expand-exam-vocab-gaps-20260915.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: expand-exam-vocabulary-gaps
+  cancel-in-progress: false
+
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Expand target counts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('scripts/build-exam-vocab-expansion.py')
+          s = p.read_text()
+          replacements = {
+              'JA_TARGETS = {"N3": 200, "N2": 350, "N1": 250}': 'JA_TARGETS = {"N3": 500, "N2": 1050, "N1": 750}',
+              'KO_TARGETS = {"중급": 250, "고급": 450}': 'KO_TARGETS = {"중급": 600, "고급": 1100}',
+              '// 800 exam-oriented Japanese headwords: N3 200, N2 350, N1 250.': '// 2,300 exam-oriented Japanese headwords: N3 500, N2 1,050, N1 750.',
+              '// 700 exam-oriented Korean headwords: 중급 250, 고급 450.': '// 1,700 exam-oriented Korean headwords: 중급 600, 고급 1,100.',
+              "if len(japanese) != 800 or len(korean) != 700:": "if len(japanese) != 2300 or len(korean) != 1700:",
+              "if len({x['word'] for x in japanese}) != 800 or len({x['word'] for x in korean}) != 700:": "if len({x['word'] for x in japanese}) != 2300 or len({x['word'] for x in korean}) != 1700:",
+          }
+          for old, new in replacements.items():
+              if old not in s:
+                  raise SystemExit(f'missing patch anchor: {old}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          print('TARGETS_PATCHED')
+          PY
+
+      - name: Install vocabulary tooling
+        run: python -m pip install --disable-pip-version-check -q wordfreq pykakasi hangul-romanize mecab-python3 ipadic mecab-ko-dic
+
+      - name: Generate expanded exam vocabulary
+        run: python scripts/build-exam-vocab-expansion.py
+
+      - name: Audit expansion
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          src = Path('src')
+          ja_path = src / 'vocabulary-exam-expansion-ja.ts'
+          ko_path = src / 'vocabulary-exam-expansion-ko.ts'
+          ja = ja_path.read_text()
+          ko = ko_path.read_text()
+
+          assert ja.count('targetLanguage: "Japanese"') == 2300
+          assert ja.count('examLevel: "N3"') == 500
+          assert ja.count('examLevel: "N2"') == 1050
+          assert ja.count('examLevel: "N1"') == 750
+          assert ko.count('targetLanguage: "Korean"') == 1700
+          assert ko.count('koreanGrade: "중급"') == 600
+          assert ko.count('koreanGrade: "고급"') == 1100
+
+          jw = re.findall(r'targetText: "([^"]+)"', ja)
+          kw = re.findall(r'targetText: "([^"]+)"', ko)
+          assert len(jw) == len(set(jw)) == 2300
+          assert len(kw) == len(set(kw)) == 1700
+          assert all(len(w) >= 2 and not re.search(r'\s', w) for w in jw + kw)
+
+          # Ensure the expanded files do not duplicate bundled vocabulary elsewhere.
+          ja_other, ko_other = set(), set()
+          for p in src.glob('vocabulary*.ts'):
+              if p in {ja_path, ko_path, src / 'vocabulary.ts'}:
+                  continue
+              text = p.read_text()
+              ja_other.update(re.findall(r'targetLanguage:\s*"Japanese"\s*,\s*targetText:\s*"([^"]+)"', text))
+              ko_other.update(re.findall(r'targetLanguage:\s*"Korean"\s*,\s*targetText:\s*"([^"]+)"', text))
+          assert not (set(jw) & ja_other), list(set(jw) & ja_other)[:20]
+          assert not (set(kw) & ko_other), list(set(kw) & ko_other)[:20]
+
+          banned_ja = {'日本', '何か', 'あっ', '時', '者', '事', '分', '円', '性'}
+          banned_ko = {'하', '은', '게', '과', '면', '적', '요', '자', '여', '수상'}
+          assert not (banned_ja & set(jw))
+          assert not (banned_ko & set(kw))
+          for text in (ja, ko):
+              assert 'English: ""' not in text
+              assert '"Simplified Chinese": ""' not in text
+              assert 'reading: ""' not in text
+              assert 'romanization: ""' not in text
+              assert not re.search(r'English: "([^"\n]{1,80}), related \1"', text, re.I)
+              assert not re.search(r'"Simplified Chinese": "([^"\n]{1,80})，相关\1"', text)
+          assert 'copper coin' not in ja.lower()
+          assert 'ː' not in ko
+
+          print('GAP_EXPANSION_AUDIT_OK')
+          print('Japanese:', len(jw), 'N3=500 N2=1050 N1=750')
+          print('Korean:', len(kw), '중급=600 고급=1100')
+          print('Japanese sample:', jw[:30])
+          print('Korean sample:', kw[:30])
+          PY
+
+      - name: Update README counts and exam coverage
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('README.md')
+          s = p.read_text()
+          old_table = '''| Basic | 564 | 499 | 1,063 |
+| Intermediate | 723 | 947 | 1,670 |
+| Advanced | 1,268 | 902 | 2,170 |
+| **Total** | **2,555** | **2,348** | **4,903** |'''
+          new_table = '''| Basic | 564 | 499 | 1,063 |
+| Intermediate | 1,023 | 1,297 | 2,320 |
+| Advanced | 2,468 | 1,552 | 4,020 |
+| **Total** | **4,055** | **3,348** | **7,403** |'''
+          if old_table not in s:
+              raise SystemExit('README vocabulary table anchor changed')
+          s = s.replace(old_table, new_table, 1)
+          s = s.replace(
+              '**Japanese:** 800 additional JLPT-oriented headwords — N3 200, N2 350, N1 250.',
+              '**Japanese:** 2,300 JLPT-oriented headwords — N3 500, N2 1,050, N1 750.',
+              1,
+          )
+          s = s.replace(
+              '**Korean:** 700 additional exam-oriented headwords — learner grade `중급` 250 and `고급` 450.',
+              '**Korean:** 1,700 exam-oriented headwords — learner grade `중급` 600 and `고급` 1,100.',
+              1,
+          )
+          p.write_text(s)
+          PY
+
+      - name: Build app
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit expanded vocabulary
+        shell: bash
+        run: |
+          rm -rf .tmp-krdict .tmp-jmdict-eng.tgz .tmp-krdict-yomitan-en.zip .tmp-krdict-yomitan-zh.zip
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/build-exam-vocab-expansion.py src/vocabulary-exam-expansion-ja.ts src/vocabulary-exam-expansion-ko.ts src/vocabulary.ts README.md
+          git commit -m "Expand exam vocabulary coverage to 7403 bundled words"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
