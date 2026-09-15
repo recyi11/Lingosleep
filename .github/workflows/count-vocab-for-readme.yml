@@ -1,0 +1,41 @@
+name: Count vocabulary for README
+
+on:
+  push:
+    paths:
+      - '.github/workflows/count-vocab-for-readme.yml'
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Count unique bundled vocabulary
+        run: |
+          npx --yes tsx <<'TS'
+          import { vocabSeed } from './src/vocabulary.ts';
+
+          const levels = ['Basic', 'Intermediate', 'Advanced'] as const;
+          const languages = ['Japanese', 'Korean'] as const;
+          const rows: Record<string, Record<string, number>> = {};
+
+          for (const level of levels) {
+            rows[level] = {};
+            for (const language of languages) {
+              const unique = new Set(
+                vocabSeed
+                  .filter(item => item.level === level && item.targetLanguage === language)
+                  .map(item => item.targetText.trim())
+                  .filter(Boolean)
+              );
+              rows[level][language] = unique.size;
+            }
+          }
+
+          const totalJapanese = levels.reduce((sum, level) => sum + rows[level].Japanese, 0);
+          const totalKorean = levels.reduce((sum, level) => sum + rows[level].Korean, 0);
+          console.log('VOCAB_COUNTS=' + JSON.stringify({ rows, totalJapanese, totalKorean, total: totalJapanese + totalKorean }));
+          TS
