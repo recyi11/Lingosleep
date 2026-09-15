@@ -1,0 +1,41 @@
+name: Retry Advanced 500
+on:
+  push:
+    paths:
+      - '.github/workflows/rerun-advanced-500-20260915.yml'
+permissions:
+  contents: write
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Sync latest main
+        run: git pull --ff-only origin main
+      - name: Install validators
+        run: pip install -q sudachipy sudachidict_core pykakasi
+      - name: Re-run validated generator from source workflow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('.github/workflows/add-advanced-500-20260915.yml').read_text().splitlines()
+          start=next(i for i,l in enumerate(src) if "python - <<'PY'" in l)+1
+          end=next(i for i in range(start,len(src)) if src[i].strip()=='PY')
+          code='\n'.join((l[10:] if l.startswith('          ') else l) for l in src[start:end])+'\n'
+          Path('/tmp/advanced500.py').write_text(code)
+          PY
+          python /tmp/advanced500.py
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit and safely rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/vocabulary-advanced-expansion-2.ts src/vocabulary.ts
+          git commit -m "Add 500 curated Advanced vocabulary entries"
+          git pull --rebase origin main
+          git push origin HEAD:main
