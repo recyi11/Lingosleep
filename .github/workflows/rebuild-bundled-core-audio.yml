@@ -1,26 +1,30 @@
-name: Rebuild core vocabulary audio
+name: Rebuild content-addressed vocabulary audio
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/rebuild-core-audio.yml'
-      - 'scripts/regenerate-core-audio.mjs'
+      - 'src/vocabulary*.ts'
+      - 'src/jlpt-level-map.ts'
+      - 'src/korean-level-map.ts'
+      - 'src/audio-v2.ts'
+      - 'scripts/regenerate-bundled-core-audio.mjs'
+      - '.github/workflows/rebuild-bundled-core-audio.yml'
 
 permissions:
   contents: write
 
 concurrency:
-  group: rebuild-core-vocabulary-audio
-  cancel-in-progress: false
+  group: rebuild-content-addressed-vocabulary-audio
+  cancel-in-progress: true
 
 jobs:
   rebuild:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
-      EXPECTED_VOCAB_COUNT: '974'
+      MIN_VOCAB_COUNT: '3000'
       AUDIO_CONCURRENCY: '4'
       AUDIO_UPLOAD_CONCURRENCY: '12'
       AUDIO_TTS_TIMEOUT_MS: '45000'
@@ -34,6 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
 
       - uses: actions/setup-python@v5
         with:
@@ -47,24 +52,25 @@ jobs:
             exit 1
           fi
 
+      - name: Install app dependencies
+        run: npm ci
+
       - name: Install Edge TTS
         run: python -m pip install --disable-pip-version-check edge-tts
 
-      - name: Regenerate and overwrite all core vocabulary audio
-        run: node scripts/regenerate-core-audio.mjs
+      - name: Generate and upload changed core audio
+        run: node scripts/regenerate-bundled-core-audio.mjs
 
-      - name: Re-enable Supabase audio only after successful rebuild
+      - name: Save audio manifest
         shell: bash
         run: |
-          git fetch origin main
-          git checkout -B main origin/main
-          git show 123137c4bf2f5c225a9d269d3dd189dd18ab7a04:vite.config.ts > vite.config.ts
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add vite.config.ts
+          git add audio/core-v2-manifest.json
           if git diff --cached --quiet; then
-            echo "Supabase audio is already enabled."
-          else
-            git commit -m "Re-enable Supabase audio after authoritative rebuild"
-            git push origin main
+            echo "Audio manifest is unchanged."
+            exit 0
           fi
+          git commit -m "Update content-addressed audio manifest"
+          git pull --rebase origin main
+          git push origin HEAD:main
