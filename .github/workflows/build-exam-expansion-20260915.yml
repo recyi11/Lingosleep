@@ -38,7 +38,7 @@ jobs:
           echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Install vocabulary tooling
-        run: python -m pip install --disable-pip-version-check -q wordfreq pykakasi hangul-romanize mecab-python3 unidic-lite
+        run: python -m pip install --disable-pip-version-check -q wordfreq pykakasi hangul-romanize mecab-python3 ipadic
 
       - name: Generate 1500 exam-oriented headwords
         run: python scripts/build-exam-vocab-expansion.py
@@ -71,7 +71,6 @@ jobs:
           assert 'related ' not in ja.lower() and 'related ' not in ko.lower()
           assert 'xx' not in ja.lower() and 'xx' not in ko.lower()
 
-          # Ensure new words do not collide with earlier source batches.
           other = ''
           for p in src.glob('vocabulary*.ts'):
               if p.name in {'vocabulary.ts', 'vocabulary-exam-expansion-ja.ts', 'vocabulary-exam-expansion-ko.ts'}:
