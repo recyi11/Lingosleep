@@ -1,0 +1,28 @@
+name: Audit Japanese Basic topic buckets
+
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-ja-basic-topic-buckets.yml'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Count runtime Japanese Basic topics
+        run: |
+          npx --yes tsx <<'TS'
+          import { vocabSeed } from './src/vocabulary.ts';
+          const topics = ['food','travel','daily life','numbers','common verbs','work','school','anime/drama','JLPT','TOPIK'];
+          for (const topic of topics) {
+            const items = vocabSeed.filter(x => x.targetLanguage === 'Japanese' && x.level === 'Basic' && x.topic === topic);
+            const unique = [...new Set(items.map(x => x.targetText.trim()).filter(Boolean))];
+            console.log(`${topic}: ${unique.length}`);
+          }
+          const all = vocabSeed.filter(x => x.targetLanguage === 'Japanese' && x.level === 'Basic');
+          console.log(`TOTAL UNIQUE JA BASIC: ${new Set(all.map(x => x.targetText.trim()).filter(Boolean)).size}`);
+          TS
