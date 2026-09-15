@@ -72,7 +72,7 @@ function levelFromJlpt(examLevel: ExamLevel): Level {
 }
 
 function levelFromKoreanGrade(koreanGrade: KoreanGrade): Level {
-  if (koreanGrade === "초級") return "Basic";
+  if (koreanGrade === "초급") return "Basic";
   if (koreanGrade === "중급") return "Intermediate";
   return "Advanced";
 }
