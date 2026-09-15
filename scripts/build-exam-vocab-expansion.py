@@ -36,12 +36,13 @@ KRDICT_URLS = [
 
 JP_BAD_GLOSS = (
     "particle", "prefix", "suffix", "conjunction", "auxiliary", "expression",
-    "counter for", "honorific", "polite expression", "sentence-ending",
+    "counter for", "honorific", "polite expression", "sentence-ending", "phrase",
 )
 JP_BAD_WORD_PARTS = (
     "かもしれない", "なければ", "てください", "て下さい", "てしまう", "ている",
     "てある", "ようにする", "ことがある", "お願いします", "おねがいします",
 )
+JP_PHRASE_ENDINGS = ("ます", "ました", "ません", "です", "でした", "ください", "下さい")
 KO_POS = {"명사", "동사", "형용사", "부사"}
 
 _kks = kakasi()
@@ -84,7 +85,7 @@ def existing_words(language: str) -> set[str]:
 
 
 def valid_headword(word: str) -> bool:
-    if not word or len(word) > 14 or any(ch.isspace() for ch in word):
+    if not word or len(word) > 12 or any(ch.isspace() for ch in word):
         return False
     if re.search(r'[()（）/／・,:;!?！？「」『』【】\[\]{}=~〜～]', word):
         return False
@@ -104,46 +105,46 @@ def concise_gloss(text: str) -> str:
             clean.append(p)
         if len(clean) >= 3:
             break
-    return '; '.join(clean)[:160]
+    return '; '.join(clean)[:180]
 
 
 def jp_romaji(reading: str) -> str:
     return ''.join(part.get('hepburn', '') for part in _kks.convert(reading)).replace(' ', '')
 
 
-def translate_one(text: str) -> str:
+def translate_one(text: str, source: str, target: str) -> str:
     text = text.strip()
     if not text:
         return text
     params = urllib.parse.urlencode({
-        "client": "gtx", "sl": "en", "tl": "zh-CN", "dt": "t", "q": text,
+        "client": "gtx", "sl": source, "tl": target, "dt": "t", "q": text,
     })
     url = "https://translate.googleapis.com/translate_a/single?" + params
     last = None
-    for attempt in range(6):
+    for attempt in range(7):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with urllib.request.urlopen(req, timeout=25) as r:
                 data = json.loads(r.read().decode("utf-8"))
             result = ''.join(piece[0] for piece in data[0] if piece and piece[0]).strip()
             if result:
                 return result
         except Exception as exc:  # noqa: BLE001
             last = exc
-            time.sleep(0.8 * (attempt + 1))
+            time.sleep(1.0 * (attempt + 1))
     raise RuntimeError(f"translation failed for {text!r}: {last}")
 
 
-def translate_many(texts: list[str]) -> dict[str, str]:
+def translate_many(texts: list[str], source: str, target: str) -> dict[str, str]:
     uniq = sorted({t for t in texts if t})
     out: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        jobs = {pool.submit(translate_one, t): t for t in uniq}
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        jobs = {pool.submit(translate_one, t, source, target): t for t in uniq}
         for i, fut in enumerate(as_completed(jobs), 1):
             t = jobs[fut]
             out[t] = fut.result()
             if i % 100 == 0:
-                print(f"translated {i}/{len(uniq)} glosses")
+                print(f"translated {i}/{len(uniq)} {source}->{target}")
     return out
 
 
@@ -160,14 +161,13 @@ def choose_japanese(jlpt_map: dict[str, str], existing: set[str]) -> list[dict]:
             gloss = concise_gloss(row.get("waller_definition") or '')
             if not valid_headword(word) or word in used or jlpt_map.get(word) != target_level:
                 continue
-            if any(x in word for x in JP_BAD_WORD_PARTS):
+            if any(x in word for x in JP_BAD_WORD_PARTS) or word.endswith(JP_PHRASE_ENDINGS):
                 continue
             lower = gloss.lower()
             if not gloss or any(x in lower for x in JP_BAD_GLOSS) or "todo" in lower or "#name" in lower:
                 continue
             reading = kana or word
             freq = zipf_frequency(word, "ja")
-            # Favour modern/common lexical items, while keeping some harder N1 vocabulary.
             min_freq = {"N3": 2.8, "N2": 2.4, "N1": 1.9}[target_level]
             if freq < min_freq:
                 continue
@@ -263,15 +263,16 @@ def choose_korean(grade_map: dict[str, str], existing: set[str]) -> list[dict]:
             word = (word or '').strip()
             if not valid_headword(word) or word in existing or word in seen_source or grade_map.get(word) != grade:
                 elem.clear(); root.clear(); continue
-            eng, zh = korean_equivalents(elem)
-            gloss = concise_gloss('; '.join(eng))
-            if not gloss:
+            definition_ko = (first_desc_feat(elem, 'definition') or '').strip()
+            if not definition_ko:
                 elem.clear(); root.clear(); continue
+            eng, zh = korean_equivalents(elem)
             pronunciation = (first_desc_feat(elem, 'pronunciation') or word).strip()
             pools[grade].append({
                 'word': word,
                 'reading': pronunciation,
-                'gloss': gloss,
+                'definition_ko': definition_ko,
+                'gloss': concise_gloss('; '.join(eng)),
                 'zh': '；'.join(zh[:2]),
                 'grade': grade,
                 'freq': zipf_frequency(word, 'ko'),
@@ -301,7 +302,7 @@ def write_ja(items: list[dict], zh_map: dict[str, str]) -> None:
         'import type { VocabItem } from "./vocabulary";',
         '',
         '// 800 exam-oriented Japanese headwords: N3 200, N2 350, N1 250.',
-        '// Candidate level is cross-checked against the app JLPT map and ranked by modern corpus frequency.',
+        '// JLPT level is cross-checked against the app map; candidates are ranked by modern corpus frequency.',
         'export const japaneseExamExpansion: VocabItem[] = [',
     ]
     counters = {k: 0 for k in JA_TARGETS}
@@ -336,7 +337,7 @@ def write_ko(items: list[dict], zh_map: dict[str, str]) -> None:
         'import type { VocabItem } from "./vocabulary";',
         '',
         '// 700 exam-oriented Korean headwords: 중급 250, 고급 450.',
-        '// All are KRDICT lexicalUnit=단어 entries and use the official learner vocabulary grade.',
+        '// All targets are KRDICT lexicalUnit=단어 entries and use the official learner vocabulary grade.',
         'export const koreanExamExpansion: VocabItem[] = [',
     ]
     counters = {k: 0 for k in KO_TARGETS}
@@ -347,9 +348,10 @@ def write_ko(items: list[dict], zh_map: dict[str, str]) -> None:
         word = item['word']
         meaning_zh = item['zh'] or zh_map[item['gloss']]
         example = f"시험 준비를 하며 '{word}'라는 단어를 복습했어요."
+        prefix = 'mid' if grade == '중급' else 'adv'
         lines += [
             '  {',
-            f'    id: {q(f"ko-exam-{"mid" if grade == "중급" else "adv"}-{counters[grade]:03d}")},',
+            f'    id: {q(f"ko-exam-{prefix}-{counters[grade]:03d}")},',
             '    targetLanguage: "Korean",',
             f'    targetText: {q(word)},',
             f'    meanings: {{ English: {q(item["gloss"])}, "Simplified Chinese": {q(meaning_zh)} }},',
@@ -392,9 +394,17 @@ def main() -> None:
     if len({x['word'] for x in japanese}) != 800 or len({x['word'] for x in korean}) != 700:
         raise RuntimeError('duplicate targets inside expansion')
 
+    missing_ko_en = [x['definition_ko'] for x in korean if not x['gloss']]
+    ko_en_by_definition = translate_many(missing_ko_en, 'ko', 'en') if missing_ko_en else {}
+    for item in korean:
+        if not item['gloss']:
+            item['gloss'] = concise_gloss(ko_en_by_definition[item['definition_ko']])
+        if not item['gloss']:
+            raise RuntimeError(f"empty Korean English meaning for {item['word']}")
+
     need_zh = [x['gloss'] for x in japanese]
     need_zh += [x['gloss'] for x in korean if not x['zh']]
-    zh_map = translate_many(need_zh)
+    zh_map = translate_many(need_zh, 'en', 'zh-CN')
 
     write_ja(japanese, zh_map)
     write_ko(korean, zh_map)
