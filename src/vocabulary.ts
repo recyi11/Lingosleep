@@ -65,7 +65,6 @@ const rawVocabSeed: VocabItem[] = [
   ...koreanExamExpansion,
 ];
 
-
 function levelFromJlpt(examLevel: ExamLevel): Level {
   if (examLevel === "N5" || examLevel === "N4") return "Basic";
   if (examLevel === "N3") return "Intermediate";
@@ -73,7 +72,7 @@ function levelFromJlpt(examLevel: ExamLevel): Level {
 }
 
 function levelFromKoreanGrade(koreanGrade: KoreanGrade): Level {
-  if (koreanGrade === "초급") return "Basic";
+  if (koreanGrade === "초級") return "Basic";
   if (koreanGrade === "중급") return "Intermediate";
   return "Advanced";
 }
@@ -82,7 +81,10 @@ export function normalizeVocabForExam(item: VocabItem): VocabItem {
   if (item.targetLanguage === "Japanese") {
     const examLevel = jlptLevelByWord[item.targetText] as ExamLevel | undefined;
     if (examLevel) {
-      return { ...item, examLevel, level: levelFromJlpt(examLevel), topic: "JLPT" };
+      // Exam level and practical topic are separate dimensions. Preserve the
+      // source topic (travel, daily life, common verbs, etc.) instead of
+      // collapsing every mapped Japanese word into the JLPT topic bucket.
+      return { ...item, examLevel, level: levelFromJlpt(examLevel) };
     }
     if (item.topic === "JLPT") {
       const { examLevel: _unused, ...rest } = item;
