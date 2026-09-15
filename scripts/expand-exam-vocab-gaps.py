@@ -46,6 +46,63 @@ def patch_builder() -> None:
         if old not in s:
             raise RuntimeError(f"builder patch anchor missing: {old}")
         s = s.replace(old, new, 1)
+
+    old_translate_many = '''def translate_many(texts: list[str], source: str, target: str) -> dict[str, str]:
+    uniq = sorted({t for t in texts if t})
+    out: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        jobs = {pool.submit(translate_one, t, source, target): t for t in uniq}
+        for i, fut in enumerate(as_completed(jobs), 1):
+            t = jobs[fut]
+            out[t] = fut.result()
+            if i % 100 == 0:
+                print(f"translated {i}/{len(uniq)} {source}->{target}")
+    return out
+'''
+    new_translate_many = '''def translate_many(texts: list[str], source: str, target: str) -> dict[str, str]:
+    pending = sorted({t for t in texts if t})
+    total = len(pending)
+    out: dict[str, str] = {}
+    max_rounds = 5
+
+    for round_no in range(1, max_rounds + 1):
+        if not pending:
+            break
+        failed: list[str] = []
+        with ThreadPoolExecutor(max_workers=min(8, len(pending))) as pool:
+            jobs = {pool.submit(translate_one, t, source, target): t for t in pending}
+            for fut in as_completed(jobs):
+                t = jobs[fut]
+                try:
+                    out[t] = fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    failed.append(t)
+                    print(
+                        f"translation deferred round={round_no} {source}->{target} {t!r}: {exc}",
+                        flush=True,
+                    )
+                done = len(out)
+                if done and done % 100 == 0:
+                    print(f"translated {done}/{total} {source}->{target}", flush=True)
+        pending = sorted(set(failed))
+        if pending:
+            print(
+                f"translation retry round {round_no}/{max_rounds}: {len(pending)} pending {source}->{target}",
+                flush=True,
+            )
+            time.sleep(min(15, round_no * 3))
+
+    if pending:
+        raise RuntimeError(
+            f"translation failed after {max_rounds} rounds for {source}->{target}: {pending[:20]}"
+        )
+    return out
+'''
+    if "translation retry round" not in s:
+        if old_translate_many not in s:
+            raise RuntimeError("translate_many patch anchor missing")
+        s = s.replace(old_translate_many, new_translate_many, 1)
+
     BUILDER.write_text(s)
 
 
