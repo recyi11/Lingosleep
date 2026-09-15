@@ -38,7 +38,7 @@ jobs:
           echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Install vocabulary tooling
-        run: python -m pip install --disable-pip-version-check -q wordfreq pykakasi hangul-romanize
+        run: python -m pip install --disable-pip-version-check -q wordfreq pykakasi hangul-romanize mecab-python3 unidic-lite
 
       - name: Generate 1500 exam-oriented headwords
         run: python scripts/build-exam-vocab-expansion.py
