@@ -17,7 +17,7 @@ jobs:
         run: |
           npx --yes tsx <<'TS'
           import { vocabSeed } from './src/vocabulary.ts';
-          const topics = ['food','travel','daily life','numbers','common verbs','work','school','anime/drama','JLPT','TOPIK'];
+          const topics = ['food','travel','daily life','numbers','common verbs','work','school','anime/drama','general','JLPT','TOPIK'];
           for (const topic of topics) {
             const items = vocabSeed.filter(x => x.targetLanguage === 'Japanese' && x.level === 'Basic' && x.topic === topic);
             const unique = [...new Set(items.map(x => x.targetText.trim()).filter(Boolean))];
