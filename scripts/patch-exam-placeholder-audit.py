@@ -32,9 +32,27 @@ s = s.replace(
     'path.name in {"vocabulary-basic-expansion.ts", "vocabulary-intermediate-curated-expansion.ts"} and len(vals) >= 8',
 )
 
-# Inject stricter Japanese quality patches into patch_builder().  The candidate
-# must use a common surface form, use the JLPT source's intended English sense,
-# and translate that sense (not an ambiguous bare Japanese spelling) to Chinese.
+# Object-style sources include both normal TypeScript keys and JSON-style quoted
+# keys (notably vocabulary-basic-topic-fill-ja.ts). Accept both forms everywhere.
+s = s.replace(
+    "rf'targetLanguage:\\\\s*\"{language}\"\\\\s*,\\\\s*targetText:\\\\s*\"((?:\\\\\\\\.|[^\"\\\\\\\\])*)\"'",
+    "rf'\"?targetLanguage\"?\\\\s*:\\\\s*\"{language}\"\\\\s*,\\\\s*\"?targetText\"?\\\\s*:\\\\s*\"((?:\\\\\\\\.|[^\"\\\\\\\\])*)\"'",
+)
+s = s.replace(
+    "rf'targetLanguage:\\s*\"{language}\"\\s*,\\s*targetText:\\s*(\"(?:\\\\.|[^\"\\\\])*\")'",
+    "rf'\"?targetLanguage\"?\\s*:\\s*\"{language}\"\\s*,\\s*\"?targetText\"?\\s*:\\s*(\"(?:\\\\.|[^\"\\\\])*\")'",
+)
+
+# Generated entries are explicitly cast as VocabItem to keep TypeScript from
+# constructing a giant literal union; allow the audit parser to read that form.
+s = s.replace(
+    "re.findall(r'^  \\\{\\n(.*?)^  \\\},$', text, re.M | re.S)",
+    "re.findall(r'^  \\\{\\n(.*?)^  \\\}(?: as VocabItem)?,$', text, re.M | re.S)",
+)
+
+# Inject stricter Japanese quality patches into patch_builder(). The candidate
+# must use a common surface form, the JLPT source's intended sense, and translate
+# that sense rather than an ambiguous bare Japanese spelling.
 quality_marker = '    # EXAM_QUALITY_PATCH_V2\n'
 if quality_marker not in s:
     anchor = '    BUILDER.write_text(s)\n'
@@ -127,11 +145,29 @@ s = s.replace(
     '{"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性", "自殺", "物体ない"}',
 )
 
+# Emit authoritative unique totals for README instead of guessing from source
+# object counts. This uses the same complete parser as the duplicate audit.
+count_anchor = '    print("GAP_EXPANSION_AUDIT_OK", flush=True)\n'
+if 'FINAL_UNIQUE_TOTALS' not in s:
+    if count_anchor not in s:
+        raise SystemExit('unique total audit anchor changed')
+    s = s.replace(
+        count_anchor,
+        '    ja_all = _other_targets("Japanese") | ja_targets\n'
+        '    ko_all = _other_targets("Korean") | ko_targets\n'
+        '    print(f"FINAL_UNIQUE_TOTALS Japanese={len(ja_all)} Korean={len(ko_all)} Total={len(ja_all) + len(ko_all)}", flush=True)\n'
+        + count_anchor,
+        1,
+    )
+
 required = [
     'vocabulary-intermediate-curated-expansion.ts',
     'batch segmentation mismatch',
     'Japanese ZH meanings reused',
     'EXAM_QUALITY_PATCH_V2',
+    'FINAL_UNIQUE_TOTALS',
+    '"?targetLanguage"?',
+    '(?: as VocabItem)?',
 ]
 for marker in required:
     if marker not in s:
