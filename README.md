@@ -8,10 +8,10 @@ Live: **https://lingosleep.pages.dev**
 
 | Level | Japanese | Korean | Total |
 | --- | ---: | ---: | ---: |
-| Basic | 435 | 425 | 860 |
-| Intermediate | 549 | 652 | 1,201 |
-| Advanced | 723 | 630 | 1,353 |
-| **Total** | **1,707** | **1,707** | **3,414** |
+| Basic | 564 | 499 | 1,063 |
+| Intermediate | 723 | 947 | 1,670 |
+| Advanced | 1,268 | 902 | 2,170 |
+| **Total** | **2,555** | **2,348** | **4,903** |
 
 Counts are unique bundled target headwords currently loaded by `vocabSeed`; optional remote Supabase vocabulary is not included.
 
