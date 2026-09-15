@@ -1,4 +1,5 @@
 name: Build exam vocabulary expansion
+# rerun after candidate dedupe
 
 on:
   push:
