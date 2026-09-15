@@ -1,0 +1,602 @@
+name: Add Advanced 500
+on:
+  push:
+    paths:
+      - '.github/workflows/add-advanced-500-20260915.yml'
+permissions:
+  contents: write
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validators
+        run: pip install -q sudachipy sudachidict_core pykakasi
+      - name: Generate 500 Advanced entries
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, json
+          from sudachipy import dictionary
+          from pykakasi import kakasi
+
+          SRC=Path('src')
+          OUT=SRC/'vocabulary-advanced-expansion-2.ts'
+          tokenizer=dictionary.Dictionary().create()
+          kks=kakasi()
+
+          def kata_to_hira(s):
+              return ''.join(chr(ord(c)-0x60) if 'ァ' <= c <= 'ヶ' else c for c in s)
+          def reading(word):
+              return kata_to_hira(''.join(t.reading_form() for t in tokenizer.tokenize(word)))
+          def romaji(rd):
+              return ''.join(x['hepburn'] for x in kks.convert(rd))
+          def q(s): return json.dumps(s, ensure_ascii=False)
+          def standalone(s): return bool(s) and not re.search(r'[\s,，、;/|]', s)
+
+          used_ja=set(); used_ko=set()
+          objpat=re.compile(r'targetLanguage:\s*"(Japanese|Korean)"\s*,\s*targetText:\s*"([^"]+)"')
+          for p in SRC.glob('vocabulary*.ts'):
+              if p.name == OUT.name: continue
+              text=p.read_text()
+              for lang,w in objpat.findall(text):
+                  (used_ja if lang=='Japanese' else used_ko).add(w)
+              # basic expansion rows: [topic,pos,en,zh,ja,reading,romanization,ko]
+              if p.name=='vocabulary-basic-expansion.ts':
+                  for line in text.splitlines():
+                      s=line.strip().rstrip(',')
+                      if s.startswith('['):
+                          try: r=json.loads(s)
+                          except: continue
+                          if len(r)==8:
+                              used_ja.add(r[4]); used_ko.add(r[7])
+              # noun expansion rows: [topic,en,zh,ja,reading,romanization,ko]
+              if p.name=='vocabulary-noun-expansion.ts':
+                  for line in text.splitlines():
+                      s=line.strip().rstrip(',')
+                      if s.startswith('['):
+                          try: r=json.loads(s)
+                          except: continue
+                          if len(r)==7:
+                              used_ja.add(r[3]); used_ko.add(r[6])
+
+          DATA='''
+          制度|제도|制度|system
+          現象|현상|现象|phenomenon
+          傾向|경향|倾向|tendency
+          対策|대책|对策|countermeasure
+          方針|방침|方针|policy
+          戦略|전략|战略|strategy
+          構造|구조|结构|structure
+          背景|배경|背景|background
+          状況|상황|状况|situation
+          現状|현황|现状|current state
+          動向|동향|动向|trend
+          推移|추이|推移|transition
+          変動|변동|变动|fluctuation
+          影響|영향|影响|influence
+          効果|효과|效果|effect
+          成果|성과|成果|outcome
+          過程|과정|过程|process
+          段階|단계|阶段|stage
+          範囲|범위|范围|scope
+          程度|정도|程度|degree
+          水準|수준|水准|level
+          基準|기준|基准|standard
+          原則|원칙|原则|principle
+          規則|규칙|规则|rule
+          慣行|관행|惯例|practice
+          倫理|윤리|伦理|ethics
+          責任|책임|责任|responsibility
+          役割|역할|作用|role
+          地位|지위|地位|status
+          階層|계층|阶层|hierarchy
+          組織|조직|组织|organization
+          機関|기관|机构|institution
+          団体|단체|团体|organization
+          法人|법인|法人|legal entity
+          企業|기업|企业|enterprise
+          事業|사업|事业|business
+          業界|업계|行业|industry
+          部門|부문|部门|division
+          職種|직종|职业类别|occupation
+          職務|직무|职务|duty
+          人材|인재|人才|talent
+          人員|인원|人员|personnel
+          労務|노무|劳务|labor affairs
+          昇進|승진|晋升|promotion
+          報酬|보수|报酬|remuneration
+          待遇|대우|待遇|treatment
+          規模|규모|规模|scale
+          原価|원가|成本|cost
+          費用|비용|费用|expense
+          損益|손익|损益|profit and loss
+          投資|투자|投资|investment
+          利子|이자|利息|interest
+          金利|금리|利率|interest rate
+          生産|생산|生产|production
+          交渉|협상|谈判|negotiation
+          管理|관리|管理|management
+          運営|운영|运营|operation
+          経営|경영|经营|management
+          承認|승인|批准|approval
+          届出|신고|申报|filing
+          変更|변경|变更|change
+          修正|수정|修正|revision
+          訂正|정정|订正|correction
+          採択|채택|采纳|adoption
+          判断|판단|判断|judgment
+          選択|선택|选择|choice
+          優先|우선|优先|priority
+          配分|배분|分配|allocation
+          分配|분배|分配|distribution
+          割当|할당|分派|assignment
+          配置|배치|配置|placement
+          設置|설치|设置|installation
+          建設|건설|建设|construction
+          整備|정비|整备|maintenance
+          運用|운용|运用|operation
+          作業|작업|作业|task
+          工程|공정|工程|process
+          手順|절차|步骤|procedure
+          方式|방식|方式|method
+          仕様|사양|规格|specification
+          要件|요건|要件|requirement
+          制約|제약|制约|constraint
+          限界|한계|界限|limit
+          性能|성능|性能|performance
+          効率|효율|效率|efficiency
+          品質|품질|质量|quality
+          耐久性|내구성|耐久性|durability
+          真正性|진정성|真实性|authenticity
+          匿名性|익명성|匿名性|anonymity
+          追跡|추적|追踪|tracking
+          通知|알림|通知|notification
+          故障|고장|故障|failure
+          異常|이상|异常|abnormality
+          欠陥|결함|缺陷|defect
+          誤差|오차|误差|error
+          偏差|편차|偏差|deviation
+          分散|분산|分散|variance
+          平均|평균|平均|average
+          中央値|중앙값|中位数|median
+          頻度|빈도|频率|frequency
+          比率|비율|比率|ratio
+          確率|확률|概率|probability
+          推計|추계|推算|estimation
+          仮定|가정|假定|assumption
+          証明|증명|证明|proof
+          反証|반증|反证|refutation
+          推論|추론|推论|inference
+          結論|결론|结论|conclusion
+          前提|전제|前提|premise
+          公理|공리|公理|axiom
+          模型|모형|模型|model
+          機構|기구|机制|mechanism
+          分類|분류|分类|classification
+          区分|구분|区分|division
+          種類|종류|种类|type
+          属性|속성|属性|attribute
+          特性|특성|特性|characteristic
+          性質|성질|性质|property
+          特徴|특징|特征|feature
+          作用|작용|作用|action
+          反応|반응|反应|reaction
+          原因|원인|原因|cause
+          関係|관계|关系|relationship
+          関連|관련|关联|relation
+          増加|증가|增加|increase
+          減少|감소|减少|decrease
+          上昇|상승|上升|rise
+          下降|하강|下降|decline
+          進展|진전|进展|progress
+          成長|성장|成长|growth
+          衰退|쇠퇴|衰退|decline
+          停滞|정체|停滞|stagnation
+          改善|개선|改善|improvement
+          悪化|악화|恶化|deterioration
+          維持|유지|维持|maintenance
+          持続|지속|持续|continuation
+          革新|혁신|革新|innovation
+          刷新|쇄신|革新|renewal
+          分離|분리|分离|separation
+          分割|분할|分割|division
+          統一|통일|统一|unification
+          調和|조화|协调|harmony
+          不均衡|불균형|不均衡|imbalance
+          共通性|공통성|共通性|commonality
+          固有性|고유성|固有性|uniqueness
+          相対性|상대성|相对性|relativity
+          絶対性|절대성|绝对性|absoluteness
+          実現性|실현성|可实现性|feasibility
+          競争力|경쟁력|竞争力|competitiveness
+          影響力|영향력|影响力|influence
+          説得力|설득력|说服力|persuasiveness
+          拘束力|구속력|约束力|binding force
+          実効性|실효성|实效性|effectiveness
+          即時性|즉시성|即时性|immediacy
+          緊急性|긴급성|紧急性|urgency
+          重要性|중요성|重要性|importance
+          成熟度|성숙도|成熟度|maturity
+          完成度|완성도|完成度|completeness
+          達成度|달성도|达成度|achievement level
+          進捗|진척|进展|progress
+          実績|실적|实绩|results
+          功績|공적|功绩|achievement
+          権益|권익|权益|rights and interests
+          公益|공익|公益|public interest
+          私益|사익|私益|private interest
+          保護|보호|保护|protection
+          補償|보상|补偿|compensation
+          負担|부담|负担|burden
+          猶予|유예|宽限|grace period
+          制限|제한|限制|restriction
+          禁止|금지|禁止|prohibition
+          許容|허용|允许|allowance
+          容認|용인|容许|acceptance
+          承諾|승낙|承诺|consent
+          拒否|거부|拒绝|refusal
+          抵抗|저항|抵抗|resistance
+          反発|반발|反弹|backlash
+          摩擦|마찰|摩擦|friction
+          緊張|긴장|紧张|tension
+          危機|위기|危机|crisis
+          危険|위험|危险|danger
+          損害|손해|损害|damage
+          被害|피해|受害|harm
+          刑罰|형벌|刑罚|penalty
+          判決|판결|判决|judgment
+          裁判|재판|审判|trial
+          告訴|고소|控告|accusation
+          告発|고발|告发|denunciation
+          起訴|기소|起诉|indictment
+          控訴|항소|上诉|appeal
+          上告|상고|终审上诉|final appeal
+          証拠|증거|证据|evidence
+          証言|증언|证言|testimony
+          供述|진술|供述|statement
+          捜査|수사|侦查|investigation
+          鑑定|감정|鉴定|appraisal
+          認定|인정|认定|certification
+          身分|신분|身份|status
+          永住|영주|永久居留|permanent residence
+          移住|이주|移居|migration
+          保釈|보석|保释|bail
+          釈放|석방|释放|release
+          領土|영토|领土|territory
+          領海|영해|领海|territorial waters
+          外交|외교|外交|diplomacy
+          条約|조약|条约|treaty
+          協定|협정|协定|agreement
+          同盟|동맹|同盟|alliance
+          加盟|가입|加入|accession
+          脱退|탈퇴|退出|withdrawal
+          停戦|정전|停战|ceasefire
+          和平|평화|和平|peace
+          安保|안보|安保|security
+          防衛|방위|防卫|defense
+          軍事|군사|军事|military
+          戦術|전술|战术|tactics
+          作戦|작전|作战|operation
+          兵力|병력|兵力|military strength
+          武力|무력|武力|force
+          抑止|억제|遏制|deterrence
+          侵攻|침공|入侵|invasion
+          侵略|침략|侵略|aggression
+          占領|점령|占领|occupation
+          撤退|철수|撤退|withdrawal
+          復興|부흥|复兴|reconstruction
+          復元|복원|复原|restoration
+          保全|보전|保全|conservation
+          細胞|세포|细胞|cell
+          遺伝|유전|遗传|heredity
+          遺伝子|유전자|基因|gene
+          染色体|염색체|染色体|chromosome
+          免疫|면역|免疫|immunity
+          抗体|항체|抗体|antibody
+          感染|감염|感染|infection
+          炎症|염증|炎症|inflammation
+          疾患|질환|疾患|disease
+          療法|요법|疗法|therapy
+          症候群|증후군|综合征|syndrome
+          予後|예후|预后|prognosis
+          副作用|부작용|副作用|side effect
+          投薬|투약|用药|medication
+          処方|처방|处方|prescription
+          臨床|임상|临床|clinical practice
+          衛生|위생|卫生|hygiene
+          栄養|영양|营养|nutrition
+          代謝|대사|代谢|metabolism
+          血圧|혈압|血压|blood pressure
+          血糖|혈당|血糖|blood sugar
+          脈拍|맥박|脉搏|pulse
+          呼吸|호흡|呼吸|respiration
+          循環|순환|循环|circulation
+          神経|신경|神经|nerve
+          筋肉|근육|肌肉|muscle
+          骨格|골격|骨骼|skeleton
+          臓器|장기|脏器|organ
+          脳波|뇌파|脑波|brainwave
+          意識|의식|意识|consciousness
+          認知|인지|认知|cognition
+          知覚|지각|知觉|perception
+          記憶|기억|记忆|memory
+          思考|사고|思考|thought
+          情緒|정서|情绪|emotion
+          欲求|욕구|欲求|desire
+          動機|동기|动机|motivation
+          行動|행동|行为|behavior
+          態度|태도|态度|attitude
+          自尊|자존|自尊|self-respect
+          自信|자신|自信|confidence
+          不安|불안|不安|anxiety
+          恐怖|공포|恐惧|fear
+          疲労|피로|疲劳|fatigue
+          睡眠|수면|睡眠|sleep
+          覚醒|각성|觉醒|arousal
+          依存|의존|依赖|dependence
+          中毒|중독|中毒|addiction
+          回避|회피|回避|avoidance
+          適応|적응|适应|adaptation
+          発達|발달|发展|development
+          老化|노화|老化|aging
+          寿命|수명|寿命|lifespan
+          死亡|사망|死亡|death
+          出生|출생|出生|birth
+          妊娠|임신|怀孕|pregnancy
+          出産|출산|分娩|childbirth
+          育児|육아|育儿|childcare
+          気候|기후|气候|climate
+          気象|기상|气象|weather
+          降水|강수|降水|precipitation
+          気温|기온|气温|temperature
+          湿度|습도|湿度|humidity
+          大気|대기|大气|atmosphere
+          水質|수질|水质|water quality
+          土壌|토양|土壤|soil
+          森林|산림|森林|forest
+          生態|생태|生态|ecology
+          生態系|생태계|生态系统|ecosystem
+          生物|생물|生物|organism
+          植物|식물|植物|plant
+          動物|동물|动物|animal
+          鉱物|광물|矿物|mineral
+          燃料|연료|燃料|fuel
+          電力|전력|电力|electric power
+          太陽光|태양광|太阳能|solar energy
+          風力|풍력|风力|wind power
+          排出|배출|排放|emission
+          汚染|오염|污染|pollution
+          廃棄|폐기|废弃|disposal
+          廃棄物|폐기물|废弃物|waste
+          再生|재생|再生|regeneration
+          節約|절약|节约|conservation
+          削減|삭감|削减|reduction
+          記事|기사|报道文章|article
+          新聞|신문|报纸|newspaper
+          雑誌|잡지|杂志|magazine
+          原稿|원고|原稿|manuscript
+          著者|저자|作者|author
+          読者|독자|读者|reader
+          評論|평론|评论|criticism
+          論評|논평|论评|commentary
+          解説|해설|解说|explanation
+          見解|견해|见解|view
+          情報|정보|信息|information
+          記録|기록|记录|record
+          文献|문헌|文献|literature
+          出典|출전|出处|source
+          索引|색인|索引|index
+          目録|목록|目录|catalog
+          概要|개요|概要|overview
+          題名|제목|题名|title
+          表現|표현|表达|expression
+          叙述|서술|叙述|description
+          文脈|맥락|语境|context
+          比喩|비유|比喻|metaphor
+          題材|소재|题材|subject matter
+          様式|양식|样式|style
+          演劇|연극|戏剧|theater
+          映像|영상|影像|video
+          宣伝|선전|宣传|publicity
+          広報|홍보|公关宣传|public relations
+          評判|평판|评价|reputation
+          人気|인기|人气|popularity
+          流行|유행|流行|trend
+          傑作|걸작|杰作|masterpiece
+          名作|명작|名作|classic work
+          新作|신작|新作|new work
+          旧作|구작|旧作|older work
+          制作|제작|制作|production
+          自由|자유|自由|freedom
+          平等|평등|平等|equality
+          公正|공정|公正|fairness
+          正義|정의|正义|justice
+          道徳|도덕|道德|morality
+          価値|가치|价值|value
+          信念|신념|信念|belief
+          理念|이념|理念|principle
+          思想|사상|思想|thought
+          知識|지식|知识|knowledge
+          知性|지성|知性|intellect
+          理性|이성|理性|reason
+          感性|감성|感性|sensibility
+          本能|본능|本能|instinct
+          欲望|욕망|欲望|desire
+          幸福|행복|幸福|happiness
+          不幸|불행|不幸|unhappiness
+          満足|만족|满足|satisfaction
+          不満|불만|不满|dissatisfaction
+          期待|기대|期待|expectation
+          希望|희망|希望|hope
+          絶望|절망|绝望|despair
+          信頼|신뢰|信赖|trust
+          信用|신용|信用|credit
+          尊敬|존경|尊敬|respect
+          軽蔑|경멸|轻蔑|contempt
+          偏見|편견|偏见|prejudice
+          差別|차별|歧视|discrimination
+          寛容|관용|宽容|tolerance
+          共感|공감|共鸣|empathy
+          同情|동정|同情|sympathy
+          協力|협력|合作|cooperation
+          連帯|연대|连带|solidarity
+          慣習|관습|习俗|custom
+          秩序|질서|秩序|order
+          混乱|혼란|混乱|confusion
+          安定|안정|稳定|stability
+          革命|혁명|革命|revolution
+          民主主義|민주주의|民主主义|democracy
+          権威|권위|权威|authority
+          権力|권력|权力|power
+          統治|통치|统治|governance
+          政策|정책|政策|policy
+          政党|정당|政党|political party
+          議会|의회|议会|parliament
+          選挙|선거|选举|election
+          投票|투표|投票|voting
+          候補|후보|候选|candidate
+          代表|대표|代表|representative
+          政府|정부|政府|government
+          国家|국가|国家|state
+          地方|지방|地方|locality
+          階級|계급|阶级|social class
+          貧困|빈곤|贫困|poverty
+          富裕|부유|富裕|affluence
+          賃金|임금|工资|wage
+          税金|세금|税金|tax
+          歳出|세출|财政支出|expenditure
+          歳入|세입|财政收入|revenue
+          住宅|주택|住宅|housing
+          治安|치안|治安|public safety
+          演算|연산|运算|computation
+          処理|처리|处理|processing
+          検索|검색|检索|search
+          照会|조회|查询|inquiry
+          応答|응답|响应|response
+          要求|요구|要求|requirement
+          命令|명령|命令|command
+          実行|실행|执行|execution
+          停止|정지|停止|stop
+          起動|기동|启动|startup
+          終了|종료|结束|termination
+          接続|접속|连接|connection
+          転送|전송|转送|transfer
+          送信|송신|发送|transmission
+          受信|수신|接收|reception
+          同期|동기|同步|synchronization
+          圧縮|압축|压缩|compression
+          暗号|암호|密码|cipher
+          復号|복호|解密|decryption
+          並列|병렬|并行|parallelism
+          直列|직렬|串行|serial processing
+          仮想化|가상화|虚拟化|virtualization
+          標準化|표준화|标准化|standardization
+          正規化|정규화|规范化|normalization
+          初期化|초기화|初始化|initialization
+          設定|설정|设置|setting
+          移植性|이식성|可移植性|portability
+          再利用性|재사용성|可复用性|reusability
+          競合|경합|竞争冲突|contention
+          衝突|충돌|冲突|collision
+          待機|대기|待机|standby
+          帯域|대역|带宽|bandwidth
+          速度|속도|速度|speed
+          攻撃|공격|攻击|attack
+          防御|방어|防御|defense
+          侵入|침입|入侵|intrusion
+          漏洩|유출|泄露|leakage
+          破損|파손|破损|damage
+          改ざん|변조|篡改|tampering
+          遮断|차단|阻断|blocking
+          隔離|격리|隔离|isolation
+          予防|예방|预防|prevention
+          '''
+
+          selected=[]
+          seen_ja=set(); seen_ko=set()
+          rejected=[]
+          for raw in DATA.splitlines():
+              raw=raw.strip()
+              if not raw: continue
+              ja,ko,zh,en=[x.strip() for x in raw.split('|',3)]
+              if not standalone(ja) or not standalone(ko):
+                  rejected.append(('phrase',ja,ko)); continue
+              if ja in used_ja or ko in used_ko or ja in seen_ja or ko in seen_ko:
+                  rejected.append(('duplicate',ja,ko)); continue
+              selected.append((ja,ko,zh,en)); seen_ja.add(ja); seen_ko.add(ko)
+              if len(selected)==250: break
+
+          if len(selected)!=250:
+              print('selected',len(selected),'rejected',len(rejected))
+              print('last rejects',rejected[-30:])
+              raise SystemExit('Not enough unique Advanced pairs')
+
+          lines=[
+            'import type { VocabItem } from "./vocabulary";', '',
+            '// 500 new Advanced standalone headwords: 250 Japanese + 250 Korean.',
+            '// Generated from curated semantic pairs after global de-duplication.',
+            'export const advancedExpansion2: VocabItem[] = ['
+          ]
+          for i,(ja,ko,zh,en) in enumerate(selected,1):
+              rd=reading(ja); rm=romaji(rd)
+              lines += [
+                '  {', f'    id: {q(f"ja-advanced-exp2-{i:03d}")},',
+                '    targetLanguage: "Japanese",', f'    targetText: {q(ja)},',
+                f'    meanings: {{ English: {q(en)}, "Simplified Chinese": {q(zh)} }},',
+                f'    reading: {q(rd)},', f'    romanization: {q(rm)},',
+                '    level: "Advanced",', '    topic: "JLPT",',
+                f'    exampleSentence: {q(f"「{ja}」の意味と使い方を確認します。")},',
+                '    exampleTranslations: { English: "We review the meaning and usage of this word.", "Simplified Chinese": "我们复习这个词的含义和用法。" },',
+                '  },', '  {', f'    id: {q(f"ko-advanced-exp2-{i:03d}")},',
+                '    targetLanguage: "Korean",', f'    targetText: {q(ko)},',
+                f'    meanings: {{ English: {q(en)}, "Simplified Chinese": {q(zh)} }},',
+                f'    reading: {q(ko)},', '    romanization: "",',
+                '    level: "Advanced",', '    topic: "TOPIK",',
+                f'    exampleSentence: {q(f"“{ko}”의 의미와 쓰임을 확인합니다.")},',
+                '    exampleTranslations: { English: "We review the meaning and usage of this word.", "Simplified Chinese": "我们复习这个词的含义和用法。" },',
+                '  },'
+              ]
+          lines.append('];')
+          OUT.write_text('\n'.join(lines)+'\n')
+
+          # Final structural audit.
+          text=OUT.read_text()
+          objs=objpat.findall(text)
+          assert len(objs)==500, len(objs)
+          assert sum(1 for l,_ in objs if l=='Japanese')==250
+          assert sum(1 for l,_ in objs if l=='Korean')==250
+          words_ja=[w for l,w in objs if l=='Japanese']; words_ko=[w for l,w in objs if l=='Korean']
+          assert len(words_ja)==len(set(words_ja))==250
+          assert len(words_ko)==len(set(words_ko))==250
+          assert not (set(words_ja)&used_ja)
+          assert not (set(words_ko)&used_ko)
+          assert all(standalone(w) for _,w in objs)
+          assert '相关' not in text and 'related ' not in text
+
+          vp=SRC/'vocabulary.ts'; vt=vp.read_text()
+          imp='import { advancedExpansion2 } from "./vocabulary-advanced-expansion-2";\n'
+          if imp not in vt:
+              marker='import { advancedVocab } from "./vocabulary-advanced";\n'
+              vt=vt.replace(marker, marker+imp)
+          spread='  ...advancedExpansion2,\n'
+          if spread not in vt:
+              marker='  ...advancedVocab,\n'
+              vt=vt.replace(marker, marker+spread)
+          vp.write_text(vt)
+          print('ADVANCED_500_OK',len(selected),'pairs /',len(objs),'entries')
+          print('rejected duplicates/phrases before selection:',len(rejected))
+          print('first:',selected[:5]); print('last:',selected[-5:])
+          PY
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit expansion
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/vocabulary-advanced-expansion-2.ts src/vocabulary.ts
+          git commit -m "Add 500 curated Advanced vocabulary entries"
+          git push origin HEAD:main
