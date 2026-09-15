@@ -1,0 +1,108 @@
+name: Refine exam vocabulary v2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/refine-exam-expansion-v2-20260915.yml'
+      - 'scripts/apply-exam-vocab-quality-patch.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refine-exam-vocabulary-v2
+  cancel-in-progress: false
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Apply quality patch
+        run: python scripts/apply-exam-vocab-quality-patch.py
+
+      - name: Install vocabulary tooling
+        run: python -m pip install --disable-pip-version-check -q wordfreq pykakasi hangul-romanize mecab-python3 ipadic mecab-ko-dic
+
+      - name: Generate refined exam vocabulary
+        run: python scripts/build-exam-vocab-expansion.py
+
+      - name: Audit refined vocabulary
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          src = Path('src')
+          ja = (src / 'vocabulary-exam-expansion-ja.ts').read_text()
+          ko = (src / 'vocabulary-exam-expansion-ko.ts').read_text()
+
+          assert ja.count('targetLanguage: "Japanese"') == 800
+          assert ja.count('examLevel: "N3"') == 200
+          assert ja.count('examLevel: "N2"') == 350
+          assert ja.count('examLevel: "N1"') == 250
+          assert ko.count('targetLanguage: "Korean"') == 700
+          assert ko.count('koreanGrade: "중급"') == 250
+          assert ko.count('koreanGrade: "고급"') == 450
+
+          ja_words = re.findall(r'targetText: "([^"]+)"', ja)
+          ko_words = re.findall(r'targetText: "([^"]+)"', ko)
+          assert len(ja_words) == len(set(ja_words)) == 800
+          assert len(ko_words) == len(set(ko_words)) == 700
+          assert all(len(w) >= 2 and not re.search(r'\s', w) for w in ja_words + ko_words)
+
+          banned_ja = {'日本', '何か', 'あっ', '時', '者', '事', '分', '円', '性'}
+          banned_ko = {'하', '은', '게', '과', '면', '적', '요', '자', '여'}
+          assert not (banned_ja & set(ja_words)), banned_ja & set(ja_words)
+          assert not (banned_ko & set(ko_words)), banned_ko & set(ko_words)
+
+          assert 'copper coin' not in ja.lower()
+          assert 'English: ""' not in ja and 'English: ""' not in ko
+          assert '"Simplified Chinese": ""' not in ja and '"Simplified Chinese": ""' not in ko
+          assert 'reading: ""' not in ja and 'reading: ""' not in ko
+          assert 'romanization: ""' not in ja and 'romanization: ""' not in ko
+          assert 'ː' not in ko
+          assert '，相关' not in ja and '，相关' not in ko
+          assert ', related ' not in ja.lower() and ', related ' not in ko.lower()
+
+          print('REFINED_AUDIT_OK Japanese=800 Korean=700')
+          print('Japanese sample:', ja_words[:30])
+          print('Korean sample:', ko_words[:30])
+          PY
+
+      - name: Build app
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit and rebase onto latest main
+        shell: bash
+        run: |
+          rm -rf .tmp-krdict .tmp-jmdict-eng.tgz
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/build-exam-vocab-expansion.py src/vocabulary-exam-expansion-ja.ts src/vocabulary-exam-expansion-ko.ts src/vocabulary.ts
+          git commit -m "Refine exam vocabulary with JMdict and KRDICT validation"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
