@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -7,13 +8,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 BUILDER = ROOT / "scripts" / "build-exam-vocab-expansion.py"
-README = ROOT / "README.md"
 JA_PATH = SRC / "vocabulary-exam-expansion-ja.ts"
 KO_PATH = SRC / "vocabulary-exam-expansion-ko.ts"
+
+JA_EXPECTED = {"N3": 500, "N2": 1050, "N1": 750}
+KO_EXPECTED = {"중급": 600, "고급": 1100}
+
+
+def _replace_once(s: str, old: str, new: str, marker: str) -> str:
+    if marker in s:
+        return s
+    if old not in s:
+        raise RuntimeError(f"builder patch anchor missing: {marker}")
+    return s.replace(old, new, 1)
 
 
 def patch_builder() -> None:
     s = BUILDER.read_text()
+
     replacements = [
         (
             'JA_TARGETS = {"N3": 200, "N2": 350, "N1": 250}',
@@ -41,12 +53,61 @@ def patch_builder() -> None:
         ),
     ]
     for old, new in replacements:
-        if new in s:
-            continue
-        if old not in s:
-            raise RuntimeError(f"builder patch anchor missing: {old}")
-        s = s.replace(old, new, 1)
+        if new not in s:
+            if old not in s:
+                raise RuntimeError(f"builder patch anchor missing: {old}")
+            s = s.replace(old, new, 1)
 
+    # The original builder only saw object-style VocabItem literals. Two bundled
+    # sources store vocabulary in compact row arrays, so ignoring them can create
+    # source-level duplicates that are merely hidden by the frontend deduper.
+    old_existing_words = '''def existing_words(language: str) -> set[str]:
+    pat = re.compile(rf'targetLanguage:\\s*"{language}"\\s*,\\s*targetText:\\s*"([^\"]+)"')
+    words: set[str] = set()
+    for p in SRC.glob("vocabulary*.ts"):
+        if p.name in {"vocabulary.ts", JA_OUT.name, KO_OUT.name}:
+            continue
+        words.update(pat.findall(p.read_text()))
+    return words
+'''
+    new_existing_words = '''def _decode_ts_string(raw: str) -> str:
+    try:
+        return json.loads('"' + raw + '"')
+    except Exception:  # noqa: BLE001
+        return raw
+
+
+def existing_words(language: str) -> set[str]:
+    pat = re.compile(rf'targetLanguage:\\s*"{language}"\\s*,\\s*targetText:\\s*"((?:\\\\.|[^"\\\\])*)"')
+    words: set[str] = set()
+    for p in SRC.glob("vocabulary*.ts"):
+        if p.name in {"vocabulary.ts", JA_OUT.name, KO_OUT.name}:
+            continue
+        text = p.read_text()
+        words.update(_decode_ts_string(x) for x in pat.findall(text))
+
+        # Compact row formats used by the curated Basic and noun expansions.
+        if p.name not in {"vocabulary-basic-expansion.ts", "vocabulary-noun-expansion.ts"}:
+            continue
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith('["'):
+                continue
+            vals = re.findall(r'"((?:\\\\.|[^"\\\\])*)"', stripped)
+            if p.name == "vocabulary-basic-expansion.ts" and len(vals) >= 8:
+                raw = vals[4] if language == "Japanese" else vals[7]
+                words.add(_decode_ts_string(raw))
+            elif p.name == "vocabulary-noun-expansion.ts" and len(vals) >= 7:
+                raw = vals[3] if language == "Japanese" else vals[6]
+                words.add(_decode_ts_string(raw))
+    return words
+'''
+    s = _replace_once(s, old_existing_words, new_existing_words, "def _decode_ts_string(raw: str)")
+
+    # Translate Japanese headwords to Chinese in small newline batches. The prior
+    # one-request-per-word implementation reliably hit the public endpoint's 429
+    # threshold near the end of a 2,300-word run. Batching also gives us a stable
+    # recursive fallback if a batch is segmented unexpectedly.
     old_translate_many = '''def translate_many(texts: list[str], source: str, target: str) -> dict[str, str]:
     uniq = sorted({t for t in texts if t})
     out: dict[str, str] = {}
@@ -60,48 +121,89 @@ def patch_builder() -> None:
     return out
 '''
     new_translate_many = '''def translate_many(texts: list[str], source: str, target: str) -> dict[str, str]:
-    pending = sorted({t for t in texts if t})
-    total = len(pending)
+    uniq = sorted({t for t in texts if t})
     out: dict[str, str] = {}
-    max_rounds = 5
 
-    for round_no in range(1, max_rounds + 1):
-        if not pending:
-            break
-        failed: list[str] = []
-        with ThreadPoolExecutor(max_workers=min(8, len(pending))) as pool:
-            jobs = {pool.submit(translate_one, t, source, target): t for t in pending}
-            for fut in as_completed(jobs):
-                t = jobs[fut]
-                try:
-                    out[t] = fut.result()
-                except Exception as exc:  # noqa: BLE001
-                    failed.append(t)
-                    print(
-                        f"translation deferred round={round_no} {source}->{target} {t!r}: {exc}",
-                        flush=True,
-                    )
-                done = len(out)
-                if done and done % 100 == 0:
-                    print(f"translated {done}/{total} {source}->{target}", flush=True)
-        pending = sorted(set(failed))
-        if pending:
-            print(
-                f"translation retry round {round_no}/{max_rounds}: {len(pending)} pending {source}->{target}",
-                flush=True,
-            )
-            time.sleep(min(15, round_no * 3))
+    def request_batch(batch: list[str]) -> dict[str, str]:
+        joined = "\\n".join(batch)
+        params = urllib.parse.urlencode({
+            "client": "gtx", "sl": source, "tl": target, "dt": "t", "q": joined,
+        })
+        url = "https://translate.googleapis.com/translate_a/single?" + params
+        last = None
+        for attempt in range(5):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=35) as r:
+                    data = json.loads(r.read().decode("utf-8"))
+                translated = ''.join(piece[0] for piece in data[0] if piece and piece[0])
+                parts = [x.strip() for x in translated.splitlines()]
+                if len(parts) == len(batch) and all(parts):
+                    return dict(zip(batch, parts))
+                last = RuntimeError(
+                    f"batch segmentation mismatch: source={len(batch)} translated={len(parts)}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+            time.sleep(1.5 * (attempt + 1))
 
-    if pending:
-        raise RuntimeError(
-            f"translation failed after {max_rounds} rounds for {source}->{target}: {pending[:20]}"
-        )
+        if len(batch) == 1:
+            return {batch[0]: translate_one(batch[0], source, target)}
+        mid = len(batch) // 2
+        left = request_batch(batch[:mid])
+        right = request_batch(batch[mid:])
+        return {**left, **right}
+
+    chunk_size = 20
+    for start in range(0, len(uniq), chunk_size):
+        batch = uniq[start:start + chunk_size]
+        out.update(request_batch(batch))
+        print(f"translated {len(out)}/{len(uniq)} {source}->{target}", flush=True)
+        time.sleep(0.15)
     return out
 '''
-    if "translation retry round" not in s:
-        if old_translate_many not in s:
-            raise RuntimeError("translate_many patch anchor missing")
-        s = s.replace(old_translate_many, new_translate_many, 1)
+    s = _replace_once(s, old_translate_many, new_translate_many, "batch segmentation mismatch")
+
+    # Keep the Chinese meanings already reviewed in the existing 800-word file;
+    # only newly selected Japanese words need translation during this expansion.
+    old_ja_translate = "    ja_zh_map = translate_many([x['word'] for x in japanese], 'ja', 'zh-CN')\n"
+    new_ja_translate = '''    existing_ja_zh: dict[str, str] = {}
+    if JA_OUT.exists():
+        old_text = JA_OUT.read_text()
+        pair_re = re.compile(
+            r'targetText:\\s*("(?:\\\\.|[^"\\\\])*").*?'
+            r'meanings:\\s*\\{\\s*English:\\s*"(?:\\\\.|[^"\\\\])*",\\s*'
+            r'"Simplified Chinese":\\s*("(?:\\\\.|[^"\\\\])*")\\s*\\}',
+            re.S,
+        )
+        for m in pair_re.finditer(old_text):
+            word = json.loads(m.group(1))
+            zh = json.loads(m.group(2)).strip()
+            if word and zh:
+                existing_ja_zh[word] = zh
+
+    ja_words = [x['word'] for x in japanese]
+    ja_zh_map = {w: existing_ja_zh[w] for w in ja_words if w in existing_ja_zh}
+    ja_missing_zh = [w for w in ja_words if w not in ja_zh_map]
+    print('Japanese ZH meanings reused', len(ja_zh_map), 'new', len(ja_missing_zh))
+    ja_zh_map.update(translate_many(ja_missing_zh, 'ja', 'zh-CN'))
+'''
+    s = _replace_once(s, old_ja_translate, new_ja_translate, "Japanese ZH meanings reused")
+
+    # Preserve the earlier decision to keep self-harm vocabulary out of the
+    # relaxed-listening pool even if a source list happens to classify it for JLPT.
+    if '"自殺"' not in s.split('known_bad =', 1)[1].split('}', 1)[0]:
+        s = s.replace(
+            'known_bad = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性"}',
+            'known_bad = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性", "自殺"}',
+            1,
+        )
+    if '"자살"' not in s.split('known_bad =', 2)[-1].split('}', 1)[0]:
+        s = s.replace(
+            'known_bad = {"하", "은", "게", "과", "면", "적", "요", "자", "여"}',
+            'known_bad = {"하", "은", "게", "과", "면", "적", "요", "자", "여", "자살"}',
+            1,
+        )
 
     BUILDER.write_text(s)
 
@@ -110,121 +212,202 @@ def run_builder() -> None:
     subprocess.run(["python", str(BUILDER)], cwd=ROOT, check=True)
 
 
-def audit() -> None:
-    ja = JA_PATH.read_text()
-    ko = KO_PATH.read_text()
+def _decode(raw: str) -> str:
+    return json.loads(raw)
 
-    expected = [
-        (ja.count('targetLanguage: "Japanese"'), 2300, "Japanese count"),
-        (ja.count('examLevel: "N3"'), 500, "N3 count"),
-        (ja.count('examLevel: "N2"'), 1050, "N2 count"),
-        (ja.count('examLevel: "N1"'), 750, "N1 count"),
-        (ko.count('targetLanguage: "Korean"'), 1700, "Korean count"),
-        (ko.count('koreanGrade: "중급"'), 600, "중급 count"),
-        (ko.count('koreanGrade: "고급"'), 1100, "고급 count"),
-    ]
-    for actual, wanted, label in expected:
-        if actual != wanted:
-            raise RuntimeError(f"{label}: {actual} != {wanted}")
 
-    jw = re.findall(r'targetText: "([^"]+)"', ja)
-    kw = re.findall(r'targetText: "([^"]+)"', ko)
-    if len(jw) != len(set(jw)) or len(jw) != 2300:
-        raise RuntimeError("Japanese expansion contains duplicate targets")
-    if len(kw) != len(set(kw)) or len(kw) != 1700:
-        raise RuntimeError("Korean expansion contains duplicate targets")
-    if any(len(w) < 2 or re.search(r"\s", w) for w in jw + kw):
-        raise RuntimeError("non-standalone target found")
+def _object_targets(text: str, language: str) -> set[str]:
+    pat = re.compile(
+        rf'targetLanguage:\s*"{language}"\s*,\s*targetText:\s*("(?:\\.|[^"\\])*")'
+    )
+    return {_decode(x) for x in pat.findall(text)}
 
-    ja_other: set[str] = set()
-    ko_other: set[str] = set()
-    for p in SRC.glob("vocabulary*.ts"):
-        if p in {JA_PATH, KO_PATH, SRC / "vocabulary.ts"}:
+
+def _row_targets(path: Path, language: str) -> set[str]:
+    if path.name not in {"vocabulary-basic-expansion.ts", "vocabulary-noun-expansion.ts"}:
+        return set()
+    out: set[str] = set()
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped.startswith('["'):
             continue
-        text = p.read_text()
-        ja_other.update(
-            re.findall(
-                r'targetLanguage:\s*"Japanese"\s*,\s*targetText:\s*"([^"]+)"',
-                text,
-            )
+        vals = re.findall(r'"((?:\\.|[^"\\])*)"', stripped)
+        if path.name == "vocabulary-basic-expansion.ts" and len(vals) >= 8:
+            raw = vals[4] if language == "Japanese" else vals[7]
+        elif path.name == "vocabulary-noun-expansion.ts" and len(vals) >= 7:
+            raw = vals[3] if language == "Japanese" else vals[6]
+        else:
+            continue
+        out.add(json.loads('"' + raw + '"'))
+    return out
+
+
+def _other_targets(language: str) -> set[str]:
+    out: set[str] = set()
+    for path in SRC.glob("vocabulary*.ts"):
+        if path in {JA_PATH, KO_PATH, SRC / "vocabulary.ts"}:
+            continue
+        text = path.read_text()
+        out.update(_object_targets(text, language))
+        out.update(_row_targets(path, language))
+    return out
+
+
+def _parse_map(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        m = re.match(r'^\s*("(?:\\.|[^"\\])*"):\s*"([^"]+)"', line)
+        if m:
+            out[json.loads(m.group(1))] = m.group(2)
+    return out
+
+
+def _parse_generated(text: str, language: str) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    for block in re.findall(r'^  \{\n(.*?)^  \},$', text, re.M | re.S):
+        def prop(name: str) -> str:
+            m = re.search(rf'^\s*{re.escape(name)}:\s*("(?:\\.|[^"\\])*")', block, re.M)
+            if not m:
+                raise RuntimeError(f"missing {name} in generated {language} entry")
+            return json.loads(m.group(1))
+
+        mm = re.search(
+            r'meanings:\s*\{\s*English:\s*("(?:\\.|[^"\\])*"),\s*'
+            r'"Simplified Chinese":\s*("(?:\\.|[^"\\])*")\s*\}',
+            block,
         )
-        ko_other.update(
-            re.findall(
-                r'targetLanguage:\s*"Korean"\s*,\s*targetText:\s*"([^"]+)"',
-                text,
-            )
-        )
-    ja_dupes = set(jw) & ja_other
-    ko_dupes = set(kw) & ko_other
+        if not mm:
+            raise RuntimeError(f"missing meanings in generated {language} entry")
+
+        entry = {
+            "id": prop("id"),
+            "target": prop("targetText"),
+            "reading": prop("reading"),
+            "romanization": prop("romanization"),
+            "level": prop("level"),
+            "topic": prop("topic"),
+            "en": json.loads(mm.group(1)),
+            "zh": json.loads(mm.group(2)),
+        }
+        if language == "Japanese":
+            entry["grade"] = prop("examLevel")
+        else:
+            entry["grade"] = prop("koreanGrade")
+        entries.append(entry)
+    return entries
+
+
+def _sample(entries: list[dict[str, str]], label: str) -> None:
+    if not entries:
+        return
+    n = len(entries)
+    indexes = sorted({0, 1, 2, n // 6, n // 3, n // 2, (2 * n) // 3, (5 * n) // 6, n - 3, n - 2, n - 1})
+    rows = [
+        {
+            "word": entries[i]["target"],
+            "reading": entries[i]["reading"],
+            "en": entries[i]["en"],
+            "zh": entries[i]["zh"],
+        }
+        for i in indexes
+    ]
+    print(f"AUDIT_SAMPLE {label} " + json.dumps(rows, ensure_ascii=False), flush=True)
+
+
+def audit() -> None:
+    ja_text = JA_PATH.read_text()
+    ko_text = KO_PATH.read_text()
+    ja = _parse_generated(ja_text, "Japanese")
+    ko = _parse_generated(ko_text, "Korean")
+
+    if len(ja) != sum(JA_EXPECTED.values()):
+        raise RuntimeError(f"Japanese count: {len(ja)}")
+    if len(ko) != sum(KO_EXPECTED.values()):
+        raise RuntimeError(f"Korean count: {len(ko)}")
+
+    for grade, wanted in JA_EXPECTED.items():
+        actual = sum(1 for x in ja if x["grade"] == grade)
+        if actual != wanted:
+            raise RuntimeError(f"Japanese {grade}: {actual} != {wanted}")
+    for grade, wanted in KO_EXPECTED.items():
+        actual = sum(1 for x in ko if x["grade"] == grade)
+        if actual != wanted:
+            raise RuntimeError(f"Korean {grade}: {actual} != {wanted}")
+
+    for entries, language in ((ja, "Japanese"), (ko, "Korean")):
+        targets = [x["target"] for x in entries]
+        ids = [x["id"] for x in entries]
+        if len(targets) != len(set(targets)):
+            raise RuntimeError(f"duplicate targets inside {language} expansion")
+        if len(ids) != len(set(ids)):
+            raise RuntimeError(f"duplicate ids inside {language} expansion")
+        if any(len(w) < 2 or re.search(r"\s", w) for w in targets):
+            raise RuntimeError(f"non-standalone {language} target found")
+        for e in entries:
+            if not all(e[k].strip() for k in ("target", "reading", "romanization", "en", "zh")):
+                raise RuntimeError(f"empty generated field in {language}: {e}")
+            if len(e["en"]) > 180 or len(e["zh"]) > 100:
+                raise RuntimeError(f"overlong learner meaning in {language}: {e['target']}")
+            if "related " in e["en"].lower() or "相关" in e["zh"]:
+                raise RuntimeError(f"fabricated related gloss in {language}: {e['target']}")
+
+    ja_targets = {x["target"] for x in ja}
+    ko_targets = {x["target"] for x in ko}
+    ja_dupes = ja_targets & _other_targets("Japanese")
+    ko_dupes = ko_targets & _other_targets("Korean")
     if ja_dupes:
-        raise RuntimeError(f"Japanese duplicates vs bundled sources: {sorted(ja_dupes)[:20]}")
+        raise RuntimeError(f"Japanese duplicates vs bundled sources: {sorted(ja_dupes)[:30]}")
     if ko_dupes:
-        raise RuntimeError(f"Korean duplicates vs bundled sources: {sorted(ko_dupes)[:20]}")
+        raise RuntimeError(f"Korean duplicates vs bundled sources: {sorted(ko_dupes)[:30]}")
 
-    banned_ja = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性"}
-    banned_ko = {"하", "은", "게", "과", "면", "적", "요", "자", "여", "수상"}
-    if banned_ja & set(jw):
-        raise RuntimeError(f"banned Japanese targets: {banned_ja & set(jw)}")
-    if banned_ko & set(kw):
-        raise RuntimeError(f"banned Korean targets: {banned_ko & set(kw)}")
+    jlpt = _parse_map(SRC / "jlpt-level-map.ts")
+    kr = _parse_map(SRC / "korean-level-map.ts")
+    for e in ja:
+        if jlpt.get(e["target"]) != e["grade"]:
+            raise RuntimeError(
+                f"JLPT mismatch {e['target']}: generated={e['grade']} map={jlpt.get(e['target'])}"
+            )
+        expected_level = "Intermediate" if e["grade"] == "N3" else "Advanced"
+        if e["level"] != expected_level or e["topic"] != "JLPT":
+            raise RuntimeError(f"Japanese level/topic mismatch: {e}")
+        if re.search(r'[\u3040-\u30ff]', e["zh"]):
+            raise RuntimeError(f"Japanese kana leaked into Chinese meaning: {e['target']} -> {e['zh']}")
 
-    for text in (ja, ko):
-        for bad in ('English: ""', '"Simplified Chinese": ""', 'reading: ""', 'romanization: ""'):
-            if bad in text:
-                raise RuntimeError(f"empty generated field: {bad}")
-        if re.search(r'English: "([^"\n]{1,80}), related \1"', text, re.I):
-            raise RuntimeError("fake English related gloss found")
-        if re.search(r'"Simplified Chinese": "([^"\n]{1,80})，相关\1"', text):
-            raise RuntimeError("fake Chinese related gloss found")
-    if "copper coin" in ja.lower():
+    for e in ko:
+        if kr.get(e["target"]) != e["grade"]:
+            raise RuntimeError(
+                f"Korean grade mismatch {e['target']}: generated={e['grade']} map={kr.get(e['target'])}"
+            )
+        expected_level = "Intermediate" if e["grade"] == "중급" else "Advanced"
+        if e["level"] != expected_level or e["topic"] != "TOPIK":
+            raise RuntimeError(f"Korean level/topic mismatch: {e}")
+        if re.search(r'[\uac00-\ud7a3]', e["zh"]):
+            raise RuntimeError(f"Hangul leaked into Chinese meaning: {e['target']} -> {e['zh']}")
+
+    banned_ja = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性", "自殺"}
+    banned_ko = {"하", "은", "게", "과", "면", "적", "요", "자", "여", "수상", "자살"}
+    if banned_ja & ja_targets:
+        raise RuntimeError(f"banned Japanese targets: {sorted(banned_ja & ja_targets)}")
+    if banned_ko & ko_targets:
+        raise RuntimeError(f"banned Korean targets: {sorted(banned_ko & ko_targets)}")
+    if "copper coin" in ja_text.lower():
         raise RuntimeError("known Japanese homophone mismatch found")
-    if "ː" in ko:
+    if "ː" in ko_text:
         raise RuntimeError("unsupported Korean length mark found")
 
-    print("GAP_EXPANSION_AUDIT_OK")
-    print("Japanese=2300 N3=500 N2=1050 N1=750")
-    print("Korean=1700 중급=600 고급=1100")
-    print("Japanese sample:", jw[:30])
-    print("Korean sample:", kw[:30])
-
-
-def update_readme() -> None:
-    s = README.read_text()
-    old_table = """| Basic | 564 | 499 | 1,063 |
-| Intermediate | 723 | 947 | 1,670 |
-| Advanced | 1,268 | 902 | 2,170 |
-| **Total** | **2,555** | **2,348** | **4,903** |"""
-    new_table = """| Basic | 564 | 499 | 1,063 |
-| Intermediate | 1,023 | 1,297 | 2,320 |
-| Advanced | 2,468 | 1,552 | 4,020 |
-| **Total** | **4,055** | **3,348** | **7,403** |"""
-    if new_table not in s:
-        if old_table not in s:
-            raise RuntimeError("README vocabulary table anchor changed")
-        s = s.replace(old_table, new_table, 1)
-
-    old_ja = "**Japanese:** 800 additional JLPT-oriented headwords — N3 200, N2 350, N1 250."
-    new_ja = "**Japanese:** 2,300 JLPT-oriented headwords — N3 500, N2 1,050, N1 750."
-    if new_ja not in s:
-        if old_ja not in s:
-            raise RuntimeError("README Japanese coverage anchor changed")
-        s = s.replace(old_ja, new_ja, 1)
-
-    old_ko = "**Korean:** 700 additional exam-oriented headwords — learner grade `중급` 250 and `고급` 450."
-    new_ko = "**Korean:** 1,700 exam-oriented headwords — learner grade `중급` 600 and `고급` 1,100."
-    if new_ko not in s:
-        if old_ko not in s:
-            raise RuntimeError("README Korean coverage anchor changed")
-        s = s.replace(old_ko, new_ko, 1)
-
-    README.write_text(s)
+    print("GAP_EXPANSION_AUDIT_OK", flush=True)
+    print("Japanese=2300 N3=500 N2=1050 N1=750", flush=True)
+    print("Korean=1700 중급=600 고급=1100", flush=True)
+    for grade in JA_EXPECTED:
+        _sample([x for x in ja if x["grade"] == grade], f"Japanese-{grade}")
+    for grade in KO_EXPECTED:
+        _sample([x for x in ko if x["grade"] == grade], f"Korean-{grade}")
 
 
 def main() -> None:
     patch_builder()
     run_builder()
     audit()
-    update_readme()
 
 
 if __name__ == "__main__":
