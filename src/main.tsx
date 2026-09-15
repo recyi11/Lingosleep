@@ -28,6 +28,7 @@ import {
 import { supabase } from "./lib/supabase";
 import {
   vocabSeed,
+  normalizeVocabForExam,
   type Familiarity,
   type Level,
   type NativeLanguage,
@@ -154,6 +155,7 @@ const topics: Topic[] = [
   "work",
   "school",
   "anime/drama",
+  "general",
   "JLPT",
   "TOPIK",
 ];
@@ -255,9 +257,10 @@ const simplifiedChineseLabels: Record<string, string> = {
   Basic: "基础",
   Intermediate: "中级",
   Advanced: "高级",
+  general: "通用",
   "JLPT N5-N4 / TOPIK 1-2": "JLPT N5-N4 / TOPIK 1-2",
-  "JLPT N3-N2 / TOPIK 3-4": "JLPT N3-N2 / TOPIK 3-4",
-  "JLPT N1 / TOPIK 5-6": "JLPT N1 / TOPIK 5-6",
+  "JLPT N3 / TOPIK 3-4": "JLPT N3 / TOPIK 3-4",
+  "JLPT N2-N1 / TOPIK 5-6": "JLPT N2-N1 / TOPIK 5-6",
   "all topics": "全部词库",
   food: "食物",
   travel: "旅行",
@@ -502,7 +505,7 @@ function mapVocabularyRow(row: VocabularyRow): VocabItem | null {
   const topic = row.topic === "life" ? "daily life" : row.topic;
   if (!targetLanguage || !level || !topics.includes(topic as Topic)) return null;
 
-  return {
+  return normalizeVocabForExam({
     id: row.id,
     targetLanguage,
     targetText: row.target_text,
@@ -516,7 +519,7 @@ function mapVocabularyRow(row: VocabularyRow): VocabItem | null {
       English: row.example_translation_en || row.meaning_en,
       "Simplified Chinese": row.example_translation_zh_cn || row.meaning_zh_cn || row.meaning_en,
     },
-  };
+  });
 }
 
 async function fetchRemoteVocabulary() {
@@ -1378,7 +1381,7 @@ function App() {
               {levels.map((level) => (
                 <button key={level} className={`choice ${config.level === level ? "selected" : ""}`} onClick={() => updateConfig("level", level)}>
                   <strong>{label(level)}</strong>
-                  <span>{level === "Basic" ? label("JLPT N5-N4 / TOPIK 1-2") : level === "Intermediate" ? label("JLPT N3-N2 / TOPIK 3-4") : label("JLPT N1 / TOPIK 5-6")}</span>
+                  <span>{level === "Basic" ? label("JLPT N5-N4 / TOPIK 1-2") : level === "Intermediate" ? label("JLPT N3 / TOPIK 3-4") : label("JLPT N2-N1 / TOPIK 5-6")}</span>
                 </button>
               ))}
             </div>
