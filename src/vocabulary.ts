@@ -2,6 +2,7 @@ export type TargetLanguage = "Japanese" | "Korean" | "English";
 export type NativeLanguage = "English" | "Simplified Chinese";
 export type Level = "Basic" | "Intermediate" | "Advanced";
 export type ExamLevel = "N5" | "N4" | "N3" | "N2" | "N1";
+export type KoreanGrade = "초급" | "중급" | "고급";
 export type Topic =
   | "food"
   | "travel"
@@ -25,6 +26,7 @@ export type VocabItem = {
   level: Level;
   topic: Topic;
   examLevel?: ExamLevel;
+  koreanGrade?: KoreanGrade;
   exampleSentence: string;
   exampleTranslations: Record<NativeLanguage, string>;
   status?: Familiarity;
@@ -34,6 +36,7 @@ export type VocabItem = {
 };
 
 import { jlptLevelByWord } from "./jlpt-level-map";
+import { koreanGradeByWord } from "./korean-level-map";
 import { advancedVocab } from "./vocabulary-advanced";
 import { advancedExpansion2 } from "./vocabulary-advanced-expansion-2";
 import { basicVocab } from "./vocabulary-basic";
@@ -65,16 +68,36 @@ function levelFromJlpt(examLevel: ExamLevel): Level {
   return "Advanced";
 }
 
+function levelFromKoreanGrade(koreanGrade: KoreanGrade): Level {
+  if (koreanGrade === "초급") return "Basic";
+  if (koreanGrade === "중급") return "Intermediate";
+  return "Advanced";
+}
+
 export function normalizeVocabForExam(item: VocabItem): VocabItem {
-  if (item.targetLanguage !== "Japanese") return item;
-  const examLevel = jlptLevelByWord[item.targetText] as ExamLevel | undefined;
-  if (examLevel) {
-    return { ...item, examLevel, level: levelFromJlpt(examLevel), topic: "JLPT" };
+  if (item.targetLanguage === "Japanese") {
+    const examLevel = jlptLevelByWord[item.targetText] as ExamLevel | undefined;
+    if (examLevel) {
+      return { ...item, examLevel, level: levelFromJlpt(examLevel), topic: "JLPT" };
+    }
+    if (item.topic === "JLPT") {
+      const { examLevel: _unused, ...rest } = item;
+      return { ...rest, topic: "general" };
+    }
+    return item;
   }
-  if (item.topic === "JLPT") {
-    const { examLevel: _unused, ...rest } = item;
-    return { ...rest, topic: "general" };
+
+  if (item.targetLanguage === "Korean") {
+    const koreanGrade = koreanGradeByWord[item.targetText] as KoreanGrade | undefined;
+    if (koreanGrade) {
+      return { ...item, koreanGrade, level: levelFromKoreanGrade(koreanGrade) };
+    }
+    if (item.topic === "TOPIK") {
+      const { koreanGrade: _unused, ...rest } = item;
+      return { ...rest, topic: "general" };
+    }
   }
+
   return item;
 }
 

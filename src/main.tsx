@@ -258,9 +258,9 @@ const simplifiedChineseLabels: Record<string, string> = {
   Intermediate: "中级",
   Advanced: "高级",
   general: "通用",
-  "JLPT N5-N4 / TOPIK 1-2": "JLPT N5-N4 / TOPIK 1-2",
-  "JLPT N3 / TOPIK 3-4": "JLPT N3 / TOPIK 3-4",
-  "JLPT N2-N1 / TOPIK 5-6": "JLPT N2-N1 / TOPIK 5-6",
+  "JLPT N5-N4 / Korean 초급 (~TOPIK 1-2)": "JLPT N5-N4 / Korean 초급 (~TOPIK 1-2)",
+  "JLPT N3 / Korean 중급 (~TOPIK 3-4)": "JLPT N3 / Korean 중급 (~TOPIK 3-4)",
+  "JLPT N2-N1 / Korean 고급 (~TOPIK 5-6)": "JLPT N2-N1 / Korean 고급 (~TOPIK 5-6)",
   "all topics": "全部词库",
   food: "食物",
   travel: "旅行",
@@ -1381,7 +1381,7 @@ function App() {
               {levels.map((level) => (
                 <button key={level} className={`choice ${config.level === level ? "selected" : ""}`} onClick={() => updateConfig("level", level)}>
                   <strong>{label(level)}</strong>
-                  <span>{level === "Basic" ? label("JLPT N5-N4 / TOPIK 1-2") : level === "Intermediate" ? label("JLPT N3 / TOPIK 3-4") : label("JLPT N2-N1 / TOPIK 5-6")}</span>
+                  <span>{level === "Basic" ? label("JLPT N5-N4 / Korean 초급 (~TOPIK 1-2)") : level === "Intermediate" ? label("JLPT N3 / Korean 중급 (~TOPIK 3-4)") : label("JLPT N2-N1 / Korean 고급 (~TOPIK 5-6)")}</span>
                 </button>
               ))}
             </div>
