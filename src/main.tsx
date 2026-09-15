@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { nativeAudioSourcesV2, targetAudioSourcesV2 } from "./audio-v2";
 import {
   vocabSeed,
   normalizeVocabForExam,
@@ -1059,13 +1060,11 @@ function App() {
     if (!isSessionActive(sessionToken)) return;
     const sessionConfig = config;
     const targetSpeechText = sessionConfig.targetLanguage === "Japanese" ? item.reading : item.targetText;
-    // Audio files are keyed by ID, but several curated entries replaced the
-    // old generated text while retaining the same IDs. Reusing those files can
-    // make the spoken word disagree with the displayed word, so use live TTS
-    // until audio assets are regenerated from the current vocabulary.
-    const targetWordAudioPaths: string[] = [];
+    // Core word/meaning audio is content-addressed. If a matching v2 asset does not exist yet,
+    // speakIfPlaying falls back to browser TTS instead of risking a stale file for a reused ID.
+    const targetWordAudioPaths = targetAudioSourcesV2(item, "word", sessionConfig.targetVoiceStyle);
     const targetExampleAudioPaths: string[] = [];
-    const nativeMeaningAudioPaths: string[] = [];
+    const nativeMeaningAudioPaths = nativeAudioSourcesV2(item, "meaning", sessionConfig.nativeLanguage, sessionConfig.nativeVoiceStyle);
     const nativeExampleAudioPaths: string[] = [];
     const baseVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
     const targetBoost = sessionConfig.targetLanguage === "Japanese" ? japaneseVoiceBoost : sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
