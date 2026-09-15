@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/expand-exam-vocab-gaps-20260915.yml'
+      - 'scripts/expand-exam-vocab-gaps.py'
 
 permissions:
   contents: write
