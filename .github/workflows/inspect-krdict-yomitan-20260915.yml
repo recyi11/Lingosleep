@@ -1,0 +1,41 @@
+name: Inspect KRDICT multilingual format
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-krdict-yomitan-20260915.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect KO-EN and KO-ZH Yomitan entries
+        run: |
+          python - <<'PY'
+          import json, urllib.request, zipfile
+          from pathlib import Path
+
+          urls = {
+            'en': 'https://github.com/Lyroxide/yomitan-ko-dic/releases/download/1.0.0/KO-EN.KRDICT.No.Examples.zip',
+            'zh': 'https://github.com/Lyroxide/yomitan-ko-dic/releases/download/1.0.0/KO-ZH.KRDICT.No.Examples.zip',
+          }
+          for lang, url in urls.items():
+            path = Path(f'/tmp/{lang}.zip')
+            urllib.request.urlretrieve(url, path)
+            with zipfile.ZipFile(path) as z:
+              names = z.namelist()
+              print(lang, 'members', names[:8], 'count', len(names))
+              found = {w: [] for w in ['사이트','대표','그러다','수상','형님','먹고살다']}
+              for name in names:
+                if not name.startswith('term_bank_') or not name.endswith('.json'):
+                  continue
+                rows = json.loads(z.read(name))
+                for row in rows:
+                  if isinstance(row, list) and row and row[0] in found:
+                    found[row[0]].append(row)
+              for word, rows in found.items():
+                print(lang, word, 'COUNT', len(rows))
+                for row in rows[:4]:
+                  print(json.dumps(row, ensure_ascii=False)[:4000])
+          PY
