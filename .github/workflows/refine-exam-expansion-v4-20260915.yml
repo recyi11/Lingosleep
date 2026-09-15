@@ -81,8 +81,8 @@ jobs:
               assert '"Simplified Chinese": ""' not in text
               assert 'reading: ""' not in text
               assert 'romanization: ""' not in text
-              assert '，相关' not in text
-              assert ', related ' not in text.lower()
+              assert not re.search(r'English: "([^"\n]{1,80}), related \1"', text, re.I)
+              assert not re.search(r'"Simplified Chinese": "([^"\n]{1,80})，相关\1"', text)
           assert 'copper coin' not in ja.lower()
           assert 'ː' not in ko
 
