@@ -21,6 +21,17 @@ jobs:
           cache: npm
       - name: Install Japanese reading converter
         run: pip install pykakasi
+      - name: Fix blank-line parsing in one-shot generator
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/generate_intermediate_curated_expansion.py')
+          text = path.read_text()
+          old = "for line in RAW.strip().splitlines():\n    parts = [p.strip() for p in line.split('|')]"
+          new = "for line in RAW.strip().splitlines():\n    if not line.strip():\n        continue\n    parts = [p.strip() for p in line.split('|')]"
+          assert old in text, 'Generator parsing block changed unexpectedly'
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Generate curated Intermediate expansion
         run: python scripts/generate_intermediate_curated_expansion.py
       - name: Validate generated file
