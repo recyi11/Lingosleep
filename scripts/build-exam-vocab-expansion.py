@@ -154,12 +154,13 @@ def choose_japanese(jlpt_map: dict[str, str], existing: set[str]) -> list[dict]:
     for target_level, wanted in JA_TARGETS.items():
         rows = csv.DictReader(io.StringIO(fetch_text(WALLER_URLS[target_level])))
         pool: list[dict] = []
+        pool_seen: set[str] = set()
         for row in rows:
             kana = (row.get("kana") or '').strip()
             kanji = (row.get("kanji") or '').strip()
             word = kanji or kana
             gloss = concise_gloss(row.get("waller_definition") or '')
-            if not valid_headword(word) or word in used or jlpt_map.get(word) != target_level:
+            if not valid_headword(word) or word in used or word in pool_seen or jlpt_map.get(word) != target_level:
                 continue
             if any(x in word for x in JP_BAD_WORD_PARTS) or word.endswith(JP_PHRASE_ENDINGS):
                 continue
@@ -171,6 +172,7 @@ def choose_japanese(jlpt_map: dict[str, str], existing: set[str]) -> list[dict]:
             min_freq = {"N3": 2.8, "N2": 2.4, "N1": 1.9}[target_level]
             if freq < min_freq:
                 continue
+            pool_seen.add(word)
             pool.append({
                 "word": word,
                 "reading": reading,
