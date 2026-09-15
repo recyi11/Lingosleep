@@ -42,24 +42,7 @@ jobs:
           console.log({ counts, existingJapaneseHeadwords: existing.length });
           TS
       - name: Add supplemental curated candidates
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          path = Path('scripts/generate-ja-basic-topic-fill.py')
-          text = path.read_text()
-          marker = "runtime = json.loads(Path('/tmp/ja-basic-runtime.json').read_text())"
-          extra = """extra_path = Path('scripts/ja-basic-topic-fill-extra.json')
-if extra_path.exists():
-    extra_candidates = json.loads(extra_path.read_text())
-    for extra_topic, extra_rows in extra_candidates.items():
-        CANDIDATES.setdefault(extra_topic, []).extend(tuple(row) for row in extra_rows)
-
-"""
-          if marker not in text:
-              raise SystemExit('generator marker not found')
-          path.write_text(text.replace(marker, extra + marker, 1))
-          PY
+        run: python -c "import json; from pathlib import Path; p=Path('scripts/generate-ja-basic-topic-fill.py'); t=p.read_text(); m=\"runtime = json.loads(Path('/tmp/ja-basic-runtime.json').read_text())\"; e=\"extra_path = Path('scripts/ja-basic-topic-fill-extra.json')\\nif extra_path.exists():\\n    extra_candidates = json.loads(extra_path.read_text())\\n    for extra_topic, extra_rows in extra_candidates.items():\\n        CANDIDATES.setdefault(extra_topic, []).extend(tuple(row) for row in extra_rows)\\n\\n\"; p.write_text(t.replace(m, e + m, 1))"
       - name: Generate targeted fill
         run: python scripts/generate-ja-basic-topic-fill.py
       - name: Validate generated data
