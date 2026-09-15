@@ -234,7 +234,7 @@ def _jmdict_lexical_info(entry: dict | None, word: str, reading: str) -> dict | 
             text = g["text"].strip()
             if text and text not in glosses:
                 glosses.append(text)
-            if len(glosses) >= 3:
+            if len(glosses) >= 1:
                 break
         gloss = concise_gloss("; ".join(glosses))
         if not gloss:
@@ -359,14 +359,43 @@ def korean_equivalents(entry: ET.Element) -> tuple[list[str], list[str]]:
 def choose_korean(grade_map: dict[str, str], existing: set[str]) -> list[dict]:
     tmp = ROOT / '.tmp-krdict'
     tmp.mkdir(exist_ok=True)
-    pools: dict[str, list[dict]] = {k: [] for k in KO_TARGETS}
-    seen_source: set[str] = set()
-    known_bad = {"하", "은", "게", "과", "면", "적", "요", "자", "여"}
+    paths: list[Path] = []
     for idx, url in enumerate(KRDICT_URLS):
         path = tmp / f'{idx}.xml'
         if not path.exists():
             print('downloading KRDICT', idx + 1)
             download(url, path)
+        paths.append(path)
+
+    # KRDICT stores homonyms as separate LexicalEntry records. LingoSleep only
+    # has one card per spelling, so ambiguous spellings are unsafe: XML order can
+    # otherwise select an obscure sense (for example a historical sense of 수상).
+    # Count every dictionary entry first and only admit spellings that have one
+    # lexical entry in the whole Korean dictionary.
+    headword_counts: dict[str, int] = {}
+    for path in paths:
+        ctx = ET.iterparse(path, events=('start', 'end'))
+        _, root = next(ctx)
+        for event, elem in ctx:
+            if event != 'end' or local(elem.tag) != 'LexicalEntry':
+                continue
+            word = None
+            for child in elem:
+                if local(child.tag) == 'Lemma':
+                    word = direct_feat(child, 'writtenForm')
+                    if word:
+                        break
+            word = (word or '').strip()
+            if valid_headword(word):
+                headword_counts[word] = headword_counts.get(word, 0) + 1
+            elem.clear(); root.clear()
+
+    print('KRDICT unambiguous headwords', sum(1 for n in headword_counts.values() if n == 1))
+
+    pools: dict[str, list[dict]] = {k: [] for k in KO_TARGETS}
+    seen_source: set[str] = set()
+    known_bad = {"하", "은", "게", "과", "면", "적", "요", "자", "여"}
+    for path in paths:
         ctx = ET.iterparse(path, events=('start', 'end'))
         _, root = next(ctx)
         for event, elem in ctx:
@@ -385,6 +414,8 @@ def choose_korean(grade_map: dict[str, str], existing: set[str]) -> list[dict]:
                         break
             word = (word or '').strip()
             if not valid_headword(word) or len(word) < 2:
+                elem.clear(); root.clear(); continue
+            if headword_counts.get(word) != 1:
                 elem.clear(); root.clear(); continue
             if word in existing or word in seen_source or word in known_bad or grade_map.get(word) != grade:
                 elem.clear(); root.clear(); continue
@@ -409,17 +440,18 @@ def choose_korean(grade_map: dict[str, str], existing: set[str]) -> list[dict]:
             })
             seen_source.add(word)
             elem.clear(); root.clear()
+
     chosen: list[dict] = []
     used = set(existing)
     for grade, wanted in KO_TARGETS.items():
         pool = [x for x in pools[grade] if x['word'] not in used]
         pool.sort(key=lambda x: (-x['freq'], len(x['word']), x['word']))
         if len(pool) < wanted:
-            raise RuntimeError(f"not enough Korean {grade}: {len(pool)} < {wanted}")
+            raise RuntimeError(f"not enough unambiguous Korean {grade}: {len(pool)} < {wanted}")
         take = pool[:wanted]
         chosen.extend(take)
         used.update(x['word'] for x in take)
-        print(grade, 'validated candidates', len(pool), 'selected', len(take))
+        print(grade, 'unambiguous candidates', len(pool), 'selected', len(take))
     return chosen
 
 def q(s: str) -> str:
@@ -523,15 +555,18 @@ def main() -> None:
     if len({x['word'] for x in japanese}) != 800 or len({x['word'] for x in korean}) != 700:
         raise RuntimeError('duplicate targets inside expansion')
 
-    missing_ko_en = [x['definition_ko'] for x in korean if not x['gloss']]
-    ko_en_by_definition = translate_many(missing_ko_en, 'ko', 'en') if missing_ko_en else {}
-    missing_ko_zh = [x['definition_ko'] for x in korean if not x['zh']]
-    ko_zh_by_definition = translate_many(missing_ko_zh, 'ko', 'zh-CN') if missing_ko_zh else {}
+    # After ambiguous KRDICT spellings have been removed, translating the
+    # headword itself gives a much shorter sleep-study meaning than translating
+    # a full dictionary definition. Official equivalents still take priority.
+    missing_ko_en = [x['word'] for x in korean if not x['gloss']]
+    ko_en_by_word = translate_many(missing_ko_en, 'ko', 'en') if missing_ko_en else {}
+    missing_ko_zh = [x['word'] for x in korean if not x['zh']]
+    ko_zh_by_word = translate_many(missing_ko_zh, 'ko', 'zh-CN') if missing_ko_zh else {}
     for item in korean:
         if not item['gloss']:
-            item['gloss'] = concise_gloss(ko_en_by_definition[item['definition_ko']])
+            item['gloss'] = concise_gloss(ko_en_by_word[item['word']])
         if not item['zh']:
-            item['zh'] = ko_zh_by_definition[item['definition_ko']].strip()
+            item['zh'] = ko_zh_by_word[item['word']].strip()
         if not item['gloss'] or not item['zh']:
             raise RuntimeError(f"empty Korean meaning for {item['word']}")
 
