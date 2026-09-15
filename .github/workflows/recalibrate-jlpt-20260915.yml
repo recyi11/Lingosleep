@@ -1,0 +1,115 @@
+name: Recalibrate JLPT levels
+on:
+  push:
+    paths:
+      - '.github/workflows/recalibrate-jlpt-20260915.yml'
+permissions:
+  contents: write
+jobs:
+  recalibrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+      - name: Generate JLPT map and wire normalization
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv, io, json, re, urllib.request
+
+          repo = Path('.')
+          src = repo / 'src'
+          level_order = ['N5','N4','N3','N2','N1']
+          mapping = {}
+
+          def add_variant(raw, level):
+              s = (raw or '').strip()
+              if not s:
+                  return
+              candidates = [s]
+              candidates += re.split(r'[;/]', s)
+              for item in candidates:
+                  item = item.strip()
+                  item = re.sub(r'\s*\([^)]*\)\s*$', '', item).strip()
+                  item = item.strip('〜～')
+                  if not item or len(item) > 40:
+                      continue
+                  if any(ch in item for ch in ['=', '~']):
+                      continue
+                  mapping.setdefault(item, level)
+
+          for level in level_order:
+              url = f'https://raw.githubusercontent.com/evanclan/OpenJLPT/main/data/csv/vocab-{level.lower()}.csv'
+              with urllib.request.urlopen(url, timeout=30) as r:
+                  text = r.read().decode('utf-8-sig')
+              for row in csv.DictReader(io.StringIO(text)):
+                  add_variant(row.get('word',''), level)
+
+          items = ',\n'.join(f'  {json.dumps(k, ensure_ascii=False)}: {json.dumps(v)}' for k,v in sorted(mapping.items()))
+          map_text = '''// Generated from evanclan/OpenJLPT vocabulary CSV files.\n// JLPT no longer publishes an official exhaustive vocabulary list; this is a study-oriented mapping.\nexport type JLPTLevel = "N5" | "N4" | "N3" | "N2" | "N1";\n\nexport const jlptLevelByWord: Record<string, JLPTLevel> = {\n''' + items + '\n};\n'
+          (src/'jlpt-level-map.ts').write_text(map_text)
+
+          vp = src/'vocabulary.ts'
+          vt = vp.read_text()
+          if 'export type ExamLevel' not in vt:
+              vt = vt.replace('export type Level = "Basic" | "Intermediate" | "Advanced";\n', 'export type Level = "Basic" | "Intermediate" | "Advanced";\nexport type ExamLevel = "N5" | "N4" | "N3" | "N2" | "N1";\n')
+          if '| "general"' not in vt:
+              vt = vt.replace('  | "anime/drama"\n', '  | "anime/drama"\n  | "general"\n')
+          if 'examLevel?: ExamLevel;' not in vt:
+              vt = vt.replace('  topic: Topic;\n', '  topic: Topic;\n  examLevel?: ExamLevel;\n')
+          if 'jlptLevelByWord' not in vt:
+              vt = vt.replace('import { advancedVocab } from "./vocabulary-advanced";\n', 'import { jlptLevelByWord } from "./jlpt-level-map";\nimport { advancedVocab } from "./vocabulary-advanced";\n')
+          if 'const rawVocabSeed' not in vt:
+              vt = vt.replace('export const vocabSeed: VocabItem[] = [', 'const rawVocabSeed: VocabItem[] = [')
+              vt += '''\n\nfunction levelFromJlpt(examLevel: ExamLevel): Level {\n  if (examLevel === "N5" || examLevel === "N4") return "Basic";\n  if (examLevel === "N3") return "Intermediate";\n  return "Advanced";\n}\n\nexport function normalizeVocabForExam(item: VocabItem): VocabItem {\n  if (item.targetLanguage !== "Japanese") return item;\n  const examLevel = jlptLevelByWord[item.targetText] as ExamLevel | undefined;\n  if (examLevel) {\n    return { ...item, examLevel, level: levelFromJlpt(examLevel), topic: "JLPT" };\n  }\n  if (item.topic === "JLPT") {\n    const { examLevel: _unused, ...rest } = item;\n    return { ...rest, topic: "general" };\n  }\n  return item;\n}\n\nexport const vocabSeed: VocabItem[] = rawVocabSeed.map(normalizeVocabForExam);\n'''
+          vp.write_text(vt)
+
+          mp = src/'main.tsx'
+          mt = mp.read_text()
+          if 'normalizeVocabForExam,' not in mt:
+              mt = mt.replace('  vocabSeed,\n', '  vocabSeed,\n  normalizeVocabForExam,\n')
+          if '  "general",\n  "JLPT",' not in mt:
+              mt = mt.replace('  "anime/drama",\n  "JLPT",', '  "anime/drama",\n  "general",\n  "JLPT",')
+          if '  general: "通用",' not in mt:
+              mt = mt.replace('  Advanced: "高级",\n', '  Advanced: "高级",\n  general: "通用",\n')
+          mt = mt.replace('"JLPT N3-N2 / TOPIK 3-4"', '"JLPT N3 / TOPIK 3-4"')
+          mt = mt.replace('"JLPT N1 / TOPIK 5-6"', '"JLPT N2-N1 / TOPIK 5-6"')
+
+          old_return = '''  return {\n    id: row.id,\n    targetLanguage,\n    targetText: row.target_text,\n    meanings: { English: row.meaning_en, "Simplified Chinese": row.meaning_zh_cn || row.meaning_en },\n    reading: row.reading || row.target_text,\n    romanization: row.romanization || "",\n    level,\n    topic: topic as Topic,\n    exampleSentence: row.example_text || row.target_text,\n    exampleTranslations: {\n      English: row.example_translation_en || row.meaning_en,\n      "Simplified Chinese": row.example_translation_zh_cn || row.meaning_zh_cn || row.meaning_en,\n    },\n  };'''
+          new_return = '''  return normalizeVocabForExam({\n    id: row.id,\n    targetLanguage,\n    targetText: row.target_text,\n    meanings: { English: row.meaning_en, "Simplified Chinese": row.meaning_zh_cn || row.meaning_en },\n    reading: row.reading || row.target_text,\n    romanization: row.romanization || "",\n    level,\n    topic: topic as Topic,\n    exampleSentence: row.example_text || row.target_text,\n    exampleTranslations: {\n      English: row.example_translation_en || row.meaning_en,\n      "Simplified Chinese": row.example_translation_zh_cn || row.meaning_zh_cn || row.meaning_en,\n    },\n  });'''
+          if old_return in mt:
+              mt = mt.replace(old_return, new_return)
+          elif 'return normalizeVocabForExam({' not in mt:
+              raise SystemExit('Could not patch remote vocabulary normalization')
+          mp.write_text(mt)
+
+          # Audit current bundled Japanese vocabulary after normalization by parsing known object entries.
+          # The build is the authoritative type/integration check; this reports useful map coverage.
+          object_pat = re.compile(r'targetLanguage:\s*"Japanese"\s*,\s*targetText:\s*"([^"]+)"')
+          current = []
+          for p in src.glob('vocabulary*.ts'):
+              if p.name == 'vocabulary.ts':
+                  continue
+              current.extend(object_pat.findall(p.read_text()))
+          matched = sum(1 for w in current if w in mapping)
+          print('JLPT_MAP_ENTRIES', len(mapping))
+          print('OBJECT_JAPANESE_WORDS', len(current), 'MATCHED', matched)
+          for w in ['動物','新聞','制度','曖昧','促す','措置','懸念','趣旨']:
+              print('SAMPLE', w, mapping.get(w))
+          PY
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit safely
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/jlpt-level-map.ts src/vocabulary.ts src/main.tsx
+          git commit -m "Recalibrate Japanese vocabulary by JLPT level"
+          git pull --rebase origin main
+          git push origin HEAD:main
