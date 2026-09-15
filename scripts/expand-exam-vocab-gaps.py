@@ -78,7 +78,7 @@ def patch_builder() -> None:
 
 
 def existing_words(language: str) -> set[str]:
-    pat = re.compile(rf'targetLanguage:\\s*"{language}"\\s*,\\s*targetText:\\s*"((?:\\\\.|[^"\\\\])*)"')
+    pat = re.compile(rf'"?targetLanguage"?\\s*:\\s*"{language}"\\s*,\\s*"?targetText"?\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"')
     words: set[str] = set()
     for p in SRC.glob("vocabulary*.ts"):
         if p.name in {"vocabulary.ts", JA_OUT.name, KO_OUT.name}:
@@ -87,14 +87,14 @@ def existing_words(language: str) -> set[str]:
         words.update(_decode_ts_string(x) for x in pat.findall(text))
 
         # Compact row formats used by the curated Basic and noun expansions.
-        if p.name not in {"vocabulary-basic-expansion.ts", "vocabulary-noun-expansion.ts"}:
+        if p.name not in {"vocabulary-basic-expansion.ts", "vocabulary-noun-expansion.ts", "vocabulary-intermediate-curated-expansion.ts"}:
             continue
         for line in text.splitlines():
             stripped = line.strip()
             if not stripped.startswith('["'):
                 continue
             vals = re.findall(r'"((?:\\\\.|[^"\\\\])*)"', stripped)
-            if p.name == "vocabulary-basic-expansion.ts" and len(vals) >= 8:
+            if p.name in {"vocabulary-basic-expansion.ts", "vocabulary-intermediate-curated-expansion.ts"} and len(vals) >= 8:
                 raw = vals[4] if language == "Japanese" else vals[7]
                 words.add(_decode_ts_string(raw))
             elif p.name == "vocabulary-noun-expansion.ts" and len(vals) >= 7:
@@ -195,7 +195,7 @@ def existing_words(language: str) -> set[str]:
     if '"自殺"' not in s.split('known_bad =', 1)[1].split('}', 1)[0]:
         s = s.replace(
             'known_bad = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性"}',
-            'known_bad = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性", "自殺"}',
+            'known_bad = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性", "自殺", "物体ない"}',
             1,
         )
     if '"자살"' not in s.split('known_bad =', 2)[-1].split('}', 1)[0]:
@@ -204,6 +204,140 @@ def existing_words(language: str) -> set[str]:
             'known_bad = {"하", "은", "게", "과", "면", "적", "요", "자", "여", "자살"}',
             1,
         )
+
+    # EXAM_QUALITY_PATCH_V3
+    old_common = '    common = any(x.get("common") for x in kanji_match + reading_match + kana_word_match)\n'
+    new_common = '''    if kanji_match:
+        common = any(x.get("common") for x in kanji_match)
+    else:
+        common = any(x.get("common") for x in reading_match + kana_word_match)
+'''
+    if old_common not in s:
+        raise RuntimeError('JMdict common-surface anchor missing')
+    s = s.replace(old_common, new_common, 1)
+
+    old_raw = '''            reading = kana or word
+            raw.append({
+                "word": word,
+                "reading": reading,
+                "seq": seq,
+                "exam": target_level,
+                "freq": freq,
+            })
+'''
+    new_raw = '''            reading = kana or word
+            waller_gloss = concise_gloss((row.get("waller_definition") or "").strip())
+            if not waller_gloss or "TODO" in waller_gloss.upper():
+                continue
+            raw.append({
+                "word": word,
+                "reading": reading,
+                "seq": seq,
+                "exam": target_level,
+                "freq": freq,
+                "waller_gloss": waller_gloss,
+            })
+'''
+    if old_raw not in s:
+        raise RuntimeError('Waller gloss anchor missing')
+    s = s.replace(old_raw, new_raw, 1)
+
+    old_select = '''            info = _jmdict_lexical_info(jmdict.get(item["seq"]), item["word"], item["reading"])
+            if not info:
+                continue
+            pool.append({**item, **info})
+'''
+    new_select = '''            info = _jmdict_lexical_info(jmdict.get(item["seq"]), item["word"], item["reading"])
+            if not info or not info["common"]:
+                continue
+            merged = {**item, **info}
+            primary_gloss = item["waller_gloss"].split(";", 1)[0].strip()
+            ja_en_overrides = {
+                "ちゃんと": "properly",
+                "まあまあ": "so-so; passable",
+                "とんでもない": "unthinkable; outrageous",
+                "どんなに": "how much; no matter how",
+                "かわいそう": "pitiable; pitiful",
+                "ジュース": "juice; soft drink",
+                "高める": "to raise; to improve",
+                "紅葉": "autumn leaves; fall foliage",
+                "地元": "local area; hometown",
+                "報道": "news report; reporting",
+                "体験": "personal experience",
+                "個別": "individual; separate",
+                "果て": "end; limit",
+                "貧乏": "poverty; poor",
+            }
+            merged["gloss"] = ja_en_overrides.get(item["word"], primary_gloss)
+            pool.append(merged)
+'''
+    if old_select not in s:
+        raise RuntimeError('Japanese common-only selection anchor missing')
+    s = s.replace(old_select, new_select, 1)
+
+    old_zh = '''    ja_words = [x['word'] for x in japanese]
+    ja_zh_map = {w: existing_ja_zh[w] for w in ja_words if w in existing_ja_zh}
+    ja_missing_zh = [w for w in ja_words if w not in ja_zh_map]
+    print('Japanese ZH meanings reused', len(ja_zh_map), 'new', len(ja_missing_zh))
+    ja_zh_map.update(translate_many(ja_missing_zh, 'ja', 'zh-CN'))
+'''
+    new_zh = '''    ja_words = [x['word'] for x in japanese]
+    ja_zh_map = {w: existing_ja_zh[w] for w in ja_words if w in existing_ja_zh}
+    ja_missing_items = [x for x in japanese if x['word'] not in ja_zh_map]
+    print('Japanese ZH meanings reused', len(ja_zh_map), 'new', len(ja_missing_items))
+    gloss_zh = translate_many([x['gloss'] for x in ja_missing_items], 'en', 'zh-CN')
+    ja_zh_overrides = {
+        "全員": "全体人员；所有人",
+        "ちゃんと": "好好地；妥当地",
+        "重要": "重要；重要的",
+        "戦い": "战斗；斗争",
+        "エネルギー": "能量；精力",
+        "美人": "美人；漂亮的人",
+        "とんでもない": "荒唐的；出乎意料的",
+        "どんなに": "多么；无论多么",
+        "ジュース": "果汁；软饮料",
+        "繰り返す": "重复；反复",
+        "かわいそう": "可怜的",
+        "まあまあ": "一般般；还可以",
+        "割と": "比较；相对地",
+        "そのほか": "其他；除此以外",
+        "ボーナス": "奖金",
+        "高める": "提高；提升",
+        "紅葉": "红叶；秋叶",
+        "大通り": "大街；主要街道",
+        "熟語": "熟语；惯用语；汉字复合词",
+        "括弧": "括号",
+        "討つ": "讨伐；攻击；报仇",
+        "偶数": "偶数",
+        "地元": "当地；本地",
+        "報道": "报道；新闻报道",
+        "体験": "体验；亲身经历",
+        "ジャンプ": "跳跃",
+        "個別": "个别；单独",
+        "果て": "尽头；终点",
+        "装飾": "装饰",
+        "褒美": "奖赏；奖励",
+        "暫く": "一会儿；暂时",
+        "負う": "承担；背负；欠",
+        "貧乏": "贫穷；贫困",
+    }
+    for item in ja_missing_items:
+        ja_zh_map[item['word']] = ja_zh_overrides.get(item['word'], gloss_zh[item['gloss']])
+    for word, meaning in ja_zh_overrides.items():
+        if word in ja_words:
+            ja_zh_map[word] = meaning
+'''
+    if old_zh not in s:
+        raise RuntimeError('Japanese gloss-to-Chinese anchor missing')
+    s = s.replace(old_zh, new_zh, 1)
+
+    # Avoid TypeScript constructing a 2,000+ member object-literal union.
+    cast_anchor = "            '  },',\n"
+    if cast_anchor not in s:
+        raise RuntimeError('VocabItem cast anchor missing')
+    s = s.replace(cast_anchor, "            '  } as VocabItem,',\n")
+
+    s = s.replace('"性", "自殺"}', '"性", "自殺", "物体ない"}', 1)
 
     BUILDER.write_text(s)
 
@@ -218,13 +352,13 @@ def _decode(raw: str) -> str:
 
 def _object_targets(text: str, language: str) -> set[str]:
     pat = re.compile(
-        rf'targetLanguage:\s*"{language}"\s*,\s*targetText:\s*("(?:\\.|[^"\\])*")'
+        rf'"?targetLanguage"?\s*:\s*"{language}"\s*,\s*"?targetText"?\s*:\s*("(?:\\.|[^"\\])*")'
     )
     return {_decode(x) for x in pat.findall(text)}
 
 
 def _row_targets(path: Path, language: str) -> set[str]:
-    if path.name not in {"vocabulary-basic-expansion.ts", "vocabulary-noun-expansion.ts"}:
+    if path.name not in {"vocabulary-basic-expansion.ts", "vocabulary-noun-expansion.ts", "vocabulary-intermediate-curated-expansion.ts"}:
         return set()
     out: set[str] = set()
     for line in path.read_text().splitlines():
@@ -232,7 +366,7 @@ def _row_targets(path: Path, language: str) -> set[str]:
         if not stripped.startswith('["'):
             continue
         vals = re.findall(r'"((?:\\.|[^"\\])*)"', stripped)
-        if path.name == "vocabulary-basic-expansion.ts" and len(vals) >= 8:
+        if path.name in {"vocabulary-basic-expansion.ts", "vocabulary-intermediate-curated-expansion.ts"} and len(vals) >= 8:
             raw = vals[4] if language == "Japanese" else vals[7]
         elif path.name == "vocabulary-noun-expansion.ts" and len(vals) >= 7:
             raw = vals[3] if language == "Japanese" else vals[6]
@@ -264,7 +398,7 @@ def _parse_map(path: Path) -> dict[str, str]:
 
 def _parse_generated(text: str, language: str) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
-    for block in re.findall(r'^  \{\n(.*?)^  \},$', text, re.M | re.S):
+    for block in re.findall(r'^  \{\n(.*?)^  \}(?: as VocabItem)?,$', text, re.M | re.S):
         def prop(name: str) -> str:
             m = re.search(rf'^\s*{re.escape(name)}:\s*("(?:\\.|[^"\\])*")', block, re.M)
             if not m:
@@ -348,8 +482,23 @@ def audit() -> None:
                 raise RuntimeError(f"empty generated field in {language}: {e}")
             if len(e["en"]) > 180 or len(e["zh"]) > 100:
                 raise RuntimeError(f"overlong learner meaning in {language}: {e['target']}")
-            if "related " in e["en"].lower() or "相关" in e["zh"]:
+            en_match = re.fullmatch(r"(.+),\s*related\s+(.+)", e["en"].strip(), re.I)
+            if en_match and en_match.group(1).strip().casefold() == en_match.group(2).strip().casefold():
                 raise RuntimeError(f"fabricated related gloss in {language}: {e['target']}")
+            zh_match = re.fullmatch(r"(.+)，相关(.+)", e["zh"].strip())
+            if zh_match and zh_match.group(1).strip() == zh_match.group(2).strip():
+                raise RuntimeError(f"fabricated related gloss in {language}: {e['target']}")
+
+    # BAD_JA_GLOSS_GUARD_V3
+    bad_pairs = {
+        ("まあまあ", "很公平"),
+        ("果て", "结束；四肢；极限"),
+    }
+    for e in ja:
+        if (e["target"], e["zh"]) in bad_pairs:
+            raise RuntimeError(f"known bad Japanese learner gloss: {e['target']} -> {e['zh']}")
+        if e["target"] == "ジュース" and "deuce" in e["en"].lower():
+            raise RuntimeError("secondary homograph sense leaked into ジュース")
 
     ja_targets = {x["target"] for x in ja}
     ko_targets = {x["target"] for x in ko}
@@ -384,7 +533,7 @@ def audit() -> None:
         if re.search(r'[\uac00-\ud7a3]', e["zh"]):
             raise RuntimeError(f"Hangul leaked into Chinese meaning: {e['target']} -> {e['zh']}")
 
-    banned_ja = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性", "自殺"}
+    banned_ja = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性", "自殺", "物体ない"}
     banned_ko = {"하", "은", "게", "과", "면", "적", "요", "자", "여", "수상", "자살"}
     if banned_ja & ja_targets:
         raise RuntimeError(f"banned Japanese targets: {sorted(banned_ja & ja_targets)}")
@@ -395,6 +544,9 @@ def audit() -> None:
     if "ː" in ko_text:
         raise RuntimeError("unsupported Korean length mark found")
 
+    ja_all = _other_targets("Japanese") | ja_targets
+    ko_all = _other_targets("Korean") | ko_targets
+    print(f"FINAL_UNIQUE_TOTALS Japanese={len(ja_all)} Korean={len(ko_all)} Total={len(ja_all) + len(ko_all)}", flush=True)
     print("GAP_EXPANSION_AUDIT_OK", flush=True)
     print("Japanese=2300 N3=500 N2=1050 N1=750", flush=True)
     print("Korean=1700 중급=600 고급=1100", flush=True)

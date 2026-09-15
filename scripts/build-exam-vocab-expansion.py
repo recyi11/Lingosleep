@@ -23,8 +23,8 @@ SRC = ROOT / "src"
 JA_OUT = SRC / "vocabulary-exam-expansion-ja.ts"
 KO_OUT = SRC / "vocabulary-exam-expansion-ko.ts"
 
-JA_TARGETS = {"N3": 200, "N2": 350, "N1": 250}
-KO_TARGETS = {"중급": 250, "고급": 450}
+JA_TARGETS = {"N3": 500, "N2": 1050, "N1": 750}
+KO_TARGETS = {"중급": 600, "고급": 1100}
 
 WALLER_URLS = {
     "N3": "https://raw.githubusercontent.com/stephenmk/yomitan-jlpt-vocab/main/original_data/n3.csv",
@@ -78,13 +78,36 @@ def parse_ts_map(path: Path) -> dict[str, str]:
     return out
 
 
+def _decode_ts_string(raw: str) -> str:
+    try:
+        return json.loads('"' + raw + '"')
+    except Exception:  # noqa: BLE001
+        return raw
+
+
 def existing_words(language: str) -> set[str]:
-    pat = re.compile(rf'targetLanguage:\s*"{language}"\s*,\s*targetText:\s*"([^"]+)"')
+    pat = re.compile(rf'"?targetLanguage"?\s*:\s*"{language}"\s*,\s*"?targetText"?\s*:\s*"((?:\\.|[^"\\])*)"')
     words: set[str] = set()
     for p in SRC.glob("vocabulary*.ts"):
         if p.name in {"vocabulary.ts", JA_OUT.name, KO_OUT.name}:
             continue
-        words.update(pat.findall(p.read_text()))
+        text = p.read_text()
+        words.update(_decode_ts_string(x) for x in pat.findall(text))
+
+        # Compact row formats used by the curated Basic and noun expansions.
+        if p.name not in {"vocabulary-basic-expansion.ts", "vocabulary-noun-expansion.ts", "vocabulary-intermediate-curated-expansion.ts"}:
+            continue
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith('["'):
+                continue
+            vals = re.findall(r'"((?:\\.|[^"\\])*)"', stripped)
+            if p.name in {"vocabulary-basic-expansion.ts", "vocabulary-intermediate-curated-expansion.ts"} and len(vals) >= 8:
+                raw = vals[4] if language == "Japanese" else vals[7]
+                words.add(_decode_ts_string(raw))
+            elif p.name == "vocabulary-noun-expansion.ts" and len(vals) >= 7:
+                raw = vals[3] if language == "Japanese" else vals[6]
+                words.add(_decode_ts_string(raw))
     return words
 
 
@@ -142,13 +165,43 @@ def translate_one(text: str, source: str, target: str) -> str:
 def translate_many(texts: list[str], source: str, target: str) -> dict[str, str]:
     uniq = sorted({t for t in texts if t})
     out: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        jobs = {pool.submit(translate_one, t, source, target): t for t in uniq}
-        for i, fut in enumerate(as_completed(jobs), 1):
-            t = jobs[fut]
-            out[t] = fut.result()
-            if i % 100 == 0:
-                print(f"translated {i}/{len(uniq)} {source}->{target}")
+
+    def request_batch(batch: list[str]) -> dict[str, str]:
+        joined = "\n".join(batch)
+        params = urllib.parse.urlencode({
+            "client": "gtx", "sl": source, "tl": target, "dt": "t", "q": joined,
+        })
+        url = "https://translate.googleapis.com/translate_a/single?" + params
+        last = None
+        for attempt in range(5):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=35) as r:
+                    data = json.loads(r.read().decode("utf-8"))
+                translated = ''.join(piece[0] for piece in data[0] if piece and piece[0])
+                parts = [x.strip() for x in translated.splitlines()]
+                if len(parts) == len(batch) and all(parts):
+                    return dict(zip(batch, parts))
+                last = RuntimeError(
+                    f"batch segmentation mismatch: source={len(batch)} translated={len(parts)}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+            time.sleep(1.5 * (attempt + 1))
+
+        if len(batch) == 1:
+            return {batch[0]: translate_one(batch[0], source, target)}
+        mid = len(batch) // 2
+        left = request_batch(batch[:mid])
+        right = request_batch(batch[mid:])
+        return {**left, **right}
+
+    chunk_size = 20
+    for start in range(0, len(uniq), chunk_size):
+        batch = uniq[start:start + chunk_size]
+        out.update(request_batch(batch))
+        print(f"translated {len(out)}/{len(uniq)} {source}->{target}", flush=True)
+        time.sleep(0.15)
     return out
 
 
@@ -216,7 +269,10 @@ def _jmdict_lexical_info(entry: dict | None, word: str, reading: str) -> dict | 
     if not reading_match and not (kana_word_match and word == reading):
         return None
 
-    common = any(x.get("common") for x in kanji_match + reading_match + kana_word_match)
+    if kanji_match:
+        common = any(x.get("common") for x in kanji_match)
+    else:
+        common = any(x.get("common") for x in reading_match + kana_word_match)
     best: list[tuple[int, dict]] = []
     for sense in entry.get("sense", []):
         pos = sense.get("partOfSpeech", [])
@@ -255,7 +311,7 @@ def _jmdict_lexical_info(entry: dict | None, word: str, reading: str) -> dict | 
 def choose_japanese(jlpt_map: dict[str, str], existing: set[str]) -> list[dict]:
     raw_by_level: dict[str, list[dict]] = {}
     seqs: set[str] = set()
-    known_bad = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性"}
+    known_bad = {"日本", "何か", "あっ", "時", "者", "事", "分", "円", "性", "自殺", "物体ない"}
     for target_level in JA_TARGETS:
         rows = csv.DictReader(io.StringIO(fetch_text(WALLER_URLS[target_level])))
         pool_seen: set[str] = set()
@@ -279,12 +335,16 @@ def choose_japanese(jlpt_map: dict[str, str], existing: set[str]) -> list[dict]:
             if not (min_freq <= freq <= max_freq):
                 continue
             reading = kana or word
+            waller_gloss = concise_gloss((row.get("waller_definition") or "").strip())
+            if not waller_gloss or "TODO" in waller_gloss.upper():
+                continue
             raw.append({
                 "word": word,
                 "reading": reading,
                 "seq": seq,
                 "exam": target_level,
                 "freq": freq,
+                "waller_gloss": waller_gloss,
             })
             pool_seen.add(word)
             seqs.add(seq)
@@ -299,9 +359,28 @@ def choose_japanese(jlpt_map: dict[str, str], existing: set[str]) -> list[dict]:
             if item["word"] in used:
                 continue
             info = _jmdict_lexical_info(jmdict.get(item["seq"]), item["word"], item["reading"])
-            if not info:
+            if not info or not info["common"]:
                 continue
-            pool.append({**item, **info})
+            merged = {**item, **info}
+            primary_gloss = item["waller_gloss"].split(";", 1)[0].strip()
+            ja_en_overrides = {
+                "ちゃんと": "properly",
+                "まあまあ": "so-so; passable",
+                "とんでもない": "unthinkable; outrageous",
+                "どんなに": "how much; no matter how",
+                "かわいそう": "pitiable; pitiful",
+                "ジュース": "juice; soft drink",
+                "高める": "to raise; to improve",
+                "紅葉": "autumn leaves; fall foliage",
+                "地元": "local area; hometown",
+                "報道": "news report; reporting",
+                "体験": "personal experience",
+                "個別": "individual; separate",
+                "果て": "end; limit",
+                "貧乏": "poverty; poor",
+            }
+            merged["gloss"] = ja_en_overrides.get(item["word"], primary_gloss)
+            pool.append(merged)
         pool.sort(key=lambda x: (-int(x["common"]), -x["freq"], len(x["word"]), x["word"]))
         common_count = sum(1 for x in pool if x["common"])
         print(target_level, "JMdict validated", len(pool), "common", common_count)
@@ -397,7 +476,7 @@ def choose_korean(grade_map: dict[str, str], existing: set[str]) -> list[dict]:
 
     pools: dict[str, list[dict]] = {k: [] for k in KO_TARGETS}
     seen_source: set[str] = set()
-    known_bad = {"하", "은", "게", "과", "면", "적", "요", "자", "여"}
+    known_bad = {"하", "은", "게", "과", "면", "적", "요", "자", "여", "자살"}
     for path in paths:
         ctx = ET.iterparse(path, events=('start', 'end'))
         _, root = next(ctx)
@@ -535,7 +614,7 @@ def write_ja(items: list[dict], zh_map: dict[str, str]) -> None:
     lines = [
         'import type { VocabItem } from "./vocabulary";',
         '',
-        '// 800 exam-oriented Japanese headwords: N3 200, N2 350, N1 250.',
+        '// 2,300 exam-oriented Japanese headwords: N3 500, N2 1,050, N1 750.',
         '// JLPT level is cross-checked against the app map; candidates are ranked by modern corpus frequency.',
         'export const japaneseExamExpansion: VocabItem[] = [',
     ]
@@ -560,7 +639,7 @@ def write_ja(items: list[dict], zh_map: dict[str, str]) -> None:
             f'    examLevel: "{level}",',
             f'    exampleSentence: {q(example)},',
             f'    exampleTranslations: {{ English: {q(f"I reviewed the word {word!r} for exam preparation.")}, "Simplified Chinese": {q(f"为了备考，我复习了“{word}”这个词。")} }},',
-            '  },',
+            '  } as VocabItem,',
         ]
     lines.append('];')
     JA_OUT.write_text('\n'.join(lines) + '\n')
@@ -570,7 +649,7 @@ def write_ko(items: list[dict], zh_map: dict[str, str]) -> None:
     lines = [
         'import type { VocabItem } from "./vocabulary";',
         '',
-        '// 700 exam-oriented Korean headwords: 중급 250, 고급 450.',
+        '// 1,700 exam-oriented Korean headwords: 중급 600, 고급 1,100.',
         '// All targets are KRDICT lexicalUnit=단어 entries and use the official learner vocabulary grade.',
         'export const koreanExamExpansion: VocabItem[] = [',
     ]
@@ -596,7 +675,7 @@ def write_ko(items: list[dict], zh_map: dict[str, str]) -> None:
             f'    koreanGrade: "{grade}",',
             f'    exampleSentence: {q(example)},',
             f'    exampleTranslations: {{ English: {q(f"I reviewed the word {word!r} for exam preparation.")}, "Simplified Chinese": {q(f"为了备考，我复习了“{word}”这个词。")} }},',
-            '  },',
+            '  } as VocabItem,',
         ]
     lines.append('];')
     KO_OUT.write_text('\n'.join(lines) + '\n')
@@ -623,9 +702,9 @@ def main() -> None:
     japanese = choose_japanese(jlpt_map, ja_existing)
     korean = choose_korean(korean_map, ko_existing)
 
-    if len(japanese) != 800 or len(korean) != 700:
+    if len(japanese) != 2300 or len(korean) != 1700:
         raise RuntimeError(f'wrong final counts: ja={len(japanese)} ko={len(korean)}')
-    if len({x['word'] for x in japanese}) != 800 or len({x['word'] for x in korean}) != 700:
+    if len({x['word'] for x in japanese}) != 2300 or len({x['word'] for x in korean}) != 1700:
         raise RuntimeError('duplicate targets inside expansion')
 
     # Use the official KRDICT multilingual Yomitan exports for concise
@@ -669,7 +748,66 @@ def main() -> None:
     # Translating the Japanese headword directly gives a more natural compact
     # Chinese learner meaning than translating an English gloss (e.g. 人生 stays
     # 人生 instead of becoming the broader 生活).
-    ja_zh_map = translate_many([x['word'] for x in japanese], 'ja', 'zh-CN')
+    existing_ja_zh: dict[str, str] = {}
+    if JA_OUT.exists():
+        old_text = JA_OUT.read_text()
+        pair_re = re.compile(
+            r'targetText:\s*("(?:\\.|[^"\\])*").*?'
+            r'meanings:\s*\{\s*English:\s*"(?:\\.|[^"\\])*",\s*'
+            r'"Simplified Chinese":\s*("(?:\\.|[^"\\])*")\s*\}',
+            re.S,
+        )
+        for m in pair_re.finditer(old_text):
+            word = json.loads(m.group(1))
+            zh = json.loads(m.group(2)).strip()
+            if word and zh:
+                existing_ja_zh[word] = zh
+
+    ja_words = [x['word'] for x in japanese]
+    ja_zh_map = {w: existing_ja_zh[w] for w in ja_words if w in existing_ja_zh}
+    ja_missing_items = [x for x in japanese if x['word'] not in ja_zh_map]
+    print('Japanese ZH meanings reused', len(ja_zh_map), 'new', len(ja_missing_items))
+    gloss_zh = translate_many([x['gloss'] for x in ja_missing_items], 'en', 'zh-CN')
+    ja_zh_overrides = {
+        "全員": "全体人员；所有人",
+        "ちゃんと": "好好地；妥当地",
+        "重要": "重要；重要的",
+        "戦い": "战斗；斗争",
+        "エネルギー": "能量；精力",
+        "美人": "美人；漂亮的人",
+        "とんでもない": "荒唐的；出乎意料的",
+        "どんなに": "多么；无论多么",
+        "ジュース": "果汁；软饮料",
+        "繰り返す": "重复；反复",
+        "かわいそう": "可怜的",
+        "まあまあ": "一般般；还可以",
+        "割と": "比较；相对地",
+        "そのほか": "其他；除此以外",
+        "ボーナス": "奖金",
+        "高める": "提高；提升",
+        "紅葉": "红叶；秋叶",
+        "大通り": "大街；主要街道",
+        "熟語": "熟语；惯用语；汉字复合词",
+        "括弧": "括号",
+        "討つ": "讨伐；攻击；报仇",
+        "偶数": "偶数",
+        "地元": "当地；本地",
+        "報道": "报道；新闻报道",
+        "体験": "体验；亲身经历",
+        "ジャンプ": "跳跃",
+        "個別": "个别；单独",
+        "果て": "尽头；终点",
+        "装飾": "装饰",
+        "褒美": "奖赏；奖励",
+        "暫く": "一会儿；暂时",
+        "負う": "承担；背负；欠",
+        "貧乏": "贫穷；贫困",
+    }
+    for item in ja_missing_items:
+        ja_zh_map[item['word']] = ja_zh_overrides.get(item['word'], gloss_zh[item['gloss']])
+    for word, meaning in ja_zh_overrides.items():
+        if word in ja_words:
+            ja_zh_map[word] = meaning
 
     write_ja(japanese, ja_zh_map)
     write_ko(korean, {})
