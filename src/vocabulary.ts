@@ -46,6 +46,8 @@ import { intermediateCuratedExpansion } from "./vocabulary-intermediate-curated-
 import { advancedExpansion, intermediateExpansion } from "./vocabulary-expansion";
 import { advancedNounExpansion, intermediateNounExpansion } from "./vocabulary-noun-expansion";
 import { validatedHeadwordExpansion } from "./vocabulary-validated-expansion";
+import { japaneseExamExpansion } from "./vocabulary-exam-expansion-ja";
+import { koreanExamExpansion } from "./vocabulary-exam-expansion-ko";
 
 const rawVocabSeed: VocabItem[] = [
   ...basicVocab,
@@ -59,6 +61,8 @@ const rawVocabSeed: VocabItem[] = [
   ...advancedExpansion,
   ...advancedNounExpansion,
   ...validatedHeadwordExpansion,
+  ...japaneseExamExpansion,
+  ...koreanExamExpansion,
 ];
 
 
