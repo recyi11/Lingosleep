@@ -45,4 +45,4 @@ npm run build
 
 React + TypeScript + Vite · Supabase · Cloudflare Pages · Playwright
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment details. The generated code graph is available under `graphify-out/`.
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment details.
