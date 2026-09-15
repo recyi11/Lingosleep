@@ -54,5 +54,6 @@ jobs:
           git add src/vocabulary-intermediate-curated-expansion.ts
           git diff --cached --quiet && exit 0
           git commit -m "Expand Intermediate vocabulary with 500 curated entries"
+          git restore scripts/generate_intermediate_curated_expansion.py
           git pull --rebase origin main
           git push origin main
