@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { cyclePosition, prioritizeReview, reconcileOrder } from "./playback-progress";
 import { nativeAudioSourcesV2, targetAudioSourcesV2 } from "./audio-v2";
 import {
   vocabSeed,
@@ -99,6 +100,8 @@ type SyncPayload = {
   vocabMetadata: Array<PersistedVocabMetadata & { id: string }>;
   history: SessionRecord[];
   playlistPositions: Record<string, number>;
+  playlistSeeds?: Record<string, number>;
+  playlistOrders?: Record<string, string[]>;
 };
 
 const nativeLanguages: NativeLanguage[] = ["English", "Simplified Chinese"];
@@ -198,6 +201,25 @@ const simplifiedChineseLabels: Record<string, string> = {
   "Synced just now": "刚刚已同步",
   "Sync failed": "同步失败",
   "Sync code copied": "同步码已复制",
+  "Checking cloud progress": "正在检查云端进度",
+  "Syncing": "正在同步",
+  "Changes waiting to sync": "更改等待同步",
+  "Saved on this device": "已保存在本机",
+  "Device storage failed. Keep this page open.": "本机保存失败，请先不要关闭页面。",
+  "Only on this device. Connect a sync code to use another device.": "当前仅保存在本机。使用同步码可在其他设备接续。",
+  "Cloud sync failed. Local progress is kept when device storage is available.": "云同步失败；本机存储可用时，进度仍保留在本机。",
+  "Keep your sync code private: anyone with it can access your progress.": "请妥善保管同步码：持有码的人可访问你的进度。",
+  "Retry connection": "重试连接",
+  "Next word": "下一个词",
+  "Pause session": "暂停复习",
+  "Local vocabulary in use": "正在使用内置词库",
+  "Loading saved playlist": "正在载入上次的播放列表",
+  "Some saved words are unavailable. Open Playlist and Shuffle to start a new order.": "上次列表中的部分词暂不可用。可在播放列表中点击随机，重新开始一个顺序。",
+  "Choose which progress to keep": "请选择要保留的进度",
+  "This device has unsynced changes. Cloud progress has not replaced them.": "本机有未同步更改，云端进度尚未覆盖它们。",
+  "Keep this device and upload": "保留本机并上传",
+  "Use cloud progress instead": "改用云端进度",
+  "Could not back up local progress. Cloud replacement cancelled.": "无法备份本机进度，已取消云端覆盖。",
   "Target language": "目标语言",
   "Native language": "母语",
   "Target speed": "目标语语速",
@@ -372,7 +394,9 @@ function createSyncPayload(
   config: SessionConfig,
   vocab: VocabItem[],
   history: SessionRecord[],
-  playlistPositions: Record<string, number>
+  playlistPositions: Record<string, number>,
+  playlistSeeds: Record<string, number> = {},
+  playlistOrders: Record<string, string[]> = {}
 ): SyncPayload {
   return {
     version: 1,
@@ -386,13 +410,15 @@ function createSyncPayload(
     })),
     history,
     playlistPositions,
+    playlistSeeds,
+    playlistOrders,
   };
 }
 
 function readPlaylistPositions(value: unknown): Record<string, number> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === "number")
+    Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isSafeInteger(entry[1]) && entry[1] >= 0)
   );
 }
 
@@ -408,9 +434,21 @@ function readHistory(value: unknown): SessionRecord[] {
   );
 }
 
+function readPlaylistOrders(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string[]] =>
+    Array.isArray(entry[1]) && entry[1].every((id: unknown) => typeof id === "string")));
+}
+
 function readSyncPayload(value: unknown): Partial<SyncPayload> {
   if (!value || typeof value !== "object") return {};
   return value as Partial<SyncPayload>;
+}
+
+function progressSignature(payload: SyncPayload) {
+  return JSON.stringify({ ...payload, vocabMetadata: payload.vocabMetadata
+    .filter((item) => item.favorite || (item.timesPlayed || 0) > 0 || item.lastPlayed || (item.status && item.status !== "New"))
+    .slice().sort((a, b) => a.id.localeCompare(b.id)) });
 }
 
 function normalizeConfig(config: SessionConfig): SessionConfig {
@@ -495,7 +533,7 @@ function readPersistedVocabMetadata(stored: unknown): PersistedVocabMetadata {
 }
 
 function mergeVocabMetadata(items: VocabItem[], stored: unknown[]) {
-  const storedById = new Map(stored.map((item) => [(item as { id?: unknown }).id, item]));
+  const storedById = new Map(stored.filter((item) => item && typeof item === "object").map((item) => [(item as { id?: unknown }).id, item]));
   return items.map((item) => ({ ...withDefaultMetadata(item), ...readPersistedVocabMetadata(storedById.get(item.id)) }));
 }
 
@@ -528,8 +566,7 @@ async function fetchRemoteVocabulary() {
     .from("vocabulary")
     .select("id,target_language,level,topic,target_text,reading,romanization,meaning_en,meaning_zh_cn,example_text,example_translation_en,example_translation_zh_cn");
   if (error) {
-    console.warn("Failed to load vocabulary:", error);
-    return [];
+    throw error;
   }
   return (data || []).map((row) => mapVocabularyRow(row as VocabularyRow)).filter(Boolean) as VocabItem[];
 }
@@ -802,13 +839,43 @@ function App() {
   const [playlistPositions, setPlaylistPositions] = useState<Record<string, number>>(() => loadJson("lingosleep-playlist-positions", {}));
   const [syncCode, setSyncCode] = useState(() => localStorage.getItem("lingosleep-sync-code") || "");
   const [syncCodeInput, setSyncCodeInput] = useState("");
-  const [syncStatus, setSyncStatus] = useState(syncCode ? "Sync enabled" : "Local only");
+  const pendingLocalRef = useRef(loadJson("lingosleep-sync-pending", false));
+  const applyingCloudRef = useRef(false);
+  const retainedMetadataRef = useRef<unknown[]>(loadJson("lingosleep-vocab", []));
+  const [cloudConflict, setCloudConflict] = useState<Partial<SyncPayload> | null>(null);
+  const [copyNotice, setCopyNotice] = useState("");
+  const [syncStatus, setSyncStatus] = useState(syncCode ? "Checking cloud progress" : "Local only");
+  const [localSaveFailed, setLocalSaveFailed] = useState(false);
+  const [vocabularyLoadFailed, setVocabularyLoadFailed] = useState(false);
+  const [vocabularyLoading, setVocabularyLoading] = useState(import.meta.env.VITE_SUPABASE_URL !== "https://example.supabase.co");
+  const syncInFlightRef = useRef(false);
   const [syncReady, setSyncReady] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [step, setStep] = useState<"onboarding" | "setup" | "player" | "history" | "quiz" | "playlist">(() =>
     localStorage.getItem("lingosleep-onboarded") ? "setup" : "onboarding"
   );
-  const [playlistSeed, setPlaylistSeed] = useState(0);
+  const [playlistSeeds, setPlaylistSeeds] = useState<Record<string, number>>(() => readPlaylistPositions(loadJson("lingosleep-playlist-seeds", {})));
+  const [playlistOrders, setPlaylistOrders] = useState<Record<string, string[]>>(() => readPlaylistOrders(loadJson("lingosleep-playlist-orders", {})));
+  const playlistSeed = playlistSeeds[getPlaylistKey(config)] || 0;
+  const setPlaylistSeed = (update: (seed: number) => number) => {
+    setPlaylistSeeds((seeds) => ({ ...seeds, [getPlaylistKey(config)]: update(seeds[getPlaylistKey(config)] || 0) }));
+    setPlaylistOrders((orders) => ({ ...orders, [getPlaylistKey(config)]: [] }));
+  };
+  const latestPayload = useMemo(() => {
+    const payload = createSyncPayload(config, vocab, history, playlistPositions, playlistSeeds, playlistOrders);
+    const metadata = new Map<string, PersistedVocabMetadata & { id: string }>();
+    for (const entry of Array.isArray(retainedMetadataRef.current) ? retainedMetadataRef.current : []) {
+      if (entry && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string") {
+        const id = (entry as { id: string }).id;
+        metadata.set(id, { id, ...readPersistedVocabMetadata(entry) });
+      }
+    }
+    for (const entry of payload.vocabMetadata) metadata.set(entry.id, entry);
+    return { ...payload, vocabMetadata: [...metadata.values()] };
+  }, [config, vocab, history, playlistPositions, playlistSeeds, playlistOrders]);
+  const latestPayloadRef = useRef(latestPayload);
+  const persistedPayloadRef = useRef(latestPayload);
+  latestPayloadRef.current = latestPayload;
   const [playlistPage, setPlaylistPage] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -844,18 +911,31 @@ function App() {
   }, [availableTopics, config.topic]);
 
   useEffect(() => {
-    setPlaylistSeed(0);
     setPlaylistPage(0);
   }, [config.targetLanguage, config.level, config.topic]);
 
-  useEffect(() => localStorage.setItem("lingosleep-config", JSON.stringify(config)), [config]);
-  useEffect(() => localStorage.setItem("lingosleep-vocab", JSON.stringify(vocab)), [vocab]);
-  useEffect(() => localStorage.setItem("lingosleep-history", JSON.stringify(history)), [history]);
-  useEffect(() => localStorage.setItem("lingosleep-playlist-positions", JSON.stringify(playlistPositions)), [playlistPositions]);
   useEffect(() => {
-    if (syncCode) localStorage.setItem("lingosleep-sync-code", syncCode);
-    else localStorage.removeItem("lingosleep-sync-code");
-  }, [syncCode]);
+    if (latestPayload !== persistedPayloadRef.current && !applyingCloudRef.current && progressSignature(latestPayload) !== progressSignature(persistedPayloadRef.current)) pendingLocalRef.current = true;
+    persistedPayloadRef.current = latestPayload;
+    applyingCloudRef.current = false;
+    try {
+      // Store metadata only: canonical text is bundled and need not consume the
+      // browser's small storage quota on every completed word.
+      localStorage.setItem("lingosleep-sync-pending", JSON.stringify(pendingLocalRef.current));
+      localStorage.setItem("lingosleep-vocab", JSON.stringify(latestPayload.vocabMetadata));
+      localStorage.setItem("lingosleep-config", JSON.stringify(config));
+      localStorage.setItem("lingosleep-history", JSON.stringify(history));
+      localStorage.setItem("lingosleep-playlist-positions", JSON.stringify(playlistPositions));
+      localStorage.setItem("lingosleep-playlist-seeds", JSON.stringify(playlistSeeds));
+      localStorage.setItem("lingosleep-playlist-orders", JSON.stringify(playlistOrders));
+      if (syncCode) localStorage.setItem("lingosleep-sync-code", syncCode);
+      else localStorage.removeItem("lingosleep-sync-code");
+      setLocalSaveFailed(false);
+    } catch (error) {
+      console.warn("Device progress save failed", error);
+      setLocalSaveFailed(true);
+    }
+  }, [latestPayload, syncCode]);
   useEffect(() => {
     void supabase.auth.getSession().then(({ error }) => {
       if (error) console.warn("Supabase auth session check failed", error);
@@ -867,12 +947,13 @@ function App() {
           // Keep the reviewed bundled vocabulary authoritative for shared IDs.
           // Supabase may still contain legacy/generated rows; use it only to fill
           // IDs that are not present in the curated local seed.
-          setVocab((current) => mergeVocabMetadata(takeUniqueVocabulary([...vocabSeed, ...remoteVocab]), current));
+          setVocab((current) => mergeVocabMetadata(takeUniqueVocabulary([...vocabSeed, ...remoteVocab]), [...(Array.isArray(retainedMetadataRef.current) ? retainedMetadataRef.current : []), ...current]));
         }
       })
       .catch((error) => {
         console.warn("Supabase vocabulary load failed; using bundled vocabulary", error);
-      });
+        setVocabularyLoadFailed(true);
+      }).finally(() => setVocabularyLoading(false));
   }, []);
 
   const recentPlayedIds = useMemo(() => {
@@ -888,10 +969,14 @@ function App() {
     }
     return ids;
   }, [history]);
-  const playlist = useMemo(() => buildPlaylist(vocab, config, playlistSeed), [vocab, config, playlistSeed]);
+  const playlist = useMemo(() => reconcileOrder(buildPlaylist(vocab, config, playlistSeed), playlistOrders[getPlaylistKey(config)]), [vocab, config, playlistSeed, playlistOrders]);
   const playlistKey = useMemo(() => getPlaylistKey(config), [config.targetLanguage, config.level, config.topic]);
+  const savedOrderUnavailable = useMemo(() => {
+    const available = new Set(playlist.map((item) => item.id));
+    return config.playbackOrder === "Start from last left" && (playlistOrders[playlistKey] || []).some((id) => !available.has(id));
+  }, [playlist, playlistOrders, playlistKey, config.playbackOrder]);
   const playlistPageCount = 1;
-  const completedWords = Math.min(playlist.length, Math.max(0, playlistPositions[playlistKey] || 0));
+  const completedWords = cyclePosition(playlistPositions[playlistKey] || 0, playlist.length);
   const resumeWord = playlist[completedWords % (playlist.length || 1)];
   const progressPercent = playlist.length ? Math.round((completedWords / playlist.length) * 100) : 0;
   const targetLanguageWordCount = vocab.filter((item) => item.targetLanguage === config.targetLanguage).length;
@@ -1109,7 +1194,8 @@ function App() {
       return;
     }
     if (playingRef.current) return;
-    if (!playlist.length) return;
+    if (!playlist.length || savedOrderUnavailable) return;
+    setPlaylistOrders((orders) => ({ ...orders, [playlistKey]: playlist.map((item) => item.id) }));
     const sessionToken = sessionTokenRef.current + 1;
     sessionTokenRef.current = sessionToken;
     setStep("player");
@@ -1125,8 +1211,8 @@ function App() {
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
 
     const started = Date.now();
-    const sessionPlaylist =
-      config.playbackOrder === "Random" ? deprioritizeRecent(shuffle(playlist), recentPlayedIds) : playlist;
+    let sessionPlaylist =
+      config.playbackOrder === "Random" ? prioritizeReview(shuffle(playlist), recentPlayedIds) : playlist;
     let index = config.playbackOrder === "Start from last left" ? completedWords % sessionPlaylist.length : 0;
     while (isSessionActive(sessionToken) && Date.now() - started < config.languageMinutes * 60 * 1000) {
       const item = sessionPlaylist[index % sessionPlaylist.length];
@@ -1136,8 +1222,13 @@ function App() {
       if (config.playbackOrder !== "Random") {
         setPlaylistPositions((positions) => ({
           ...positions,
-          [playlistKey]: Math.min(index, sessionPlaylist.length),
+          [playlistKey]: cyclePosition(index, sessionPlaylist.length),
         }));
+      }
+      if (config.playbackOrder === "Random" && index % sessionPlaylist.length === 0) {
+        // Shuffle each new cycle, not just once at the start of a long session.
+        const recent = sessionPlaylist.slice(-recentPlayedHistoryLimit).reverse().map((word) => word.id);
+        sessionPlaylist = prioritizeReview(shuffle(sessionPlaylist), recent.slice(0, Math.max(1, Math.floor(sessionPlaylist.length / 2))));
       }
       await waitIfPlaying(configRef.current.pauseSeconds * 1000, sessionToken);
     }
@@ -1214,37 +1305,51 @@ function App() {
 
   const applySyncPayload = (value: unknown) => {
     const payload = readSyncPayload(value);
+    applyingCloudRef.current = true;
+    pendingLocalRef.current = false;
+    retainedMetadataRef.current = Array.isArray(payload.vocabMetadata) ? payload.vocabMetadata : [];
     if (payload.config) setConfig(normalizeConfig({ ...defaultConfig, ...payload.config } as SessionConfig));
     if (Array.isArray(payload.vocabMetadata)) {
       setVocab((items) => mergeVocabMetadata(items, payload.vocabMetadata as unknown[]));
     }
     setHistory(readHistory(payload.history));
     setPlaylistPositions(readPlaylistPositions(payload.playlistPositions));
+    setPlaylistSeeds(readPlaylistPositions(payload.playlistSeeds));
+    setPlaylistOrders(readPlaylistOrders(payload.playlistOrders));
   };
 
   const saveSyncData = async (code = syncCode, showStatus = false) => {
-    if (!code) return;
+    if (!code || !syncReady || syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
     setIsSyncing(true);
+    setSyncStatus("Syncing");
+    const payload = latestPayloadRef.current;
     try {
       const accountKey = await syncKeyFromCode(code);
-      const payload = createSyncPayload(configRef.current, vocab, history, playlistPositions);
       const { error } = await supabase.rpc("save_temp_account", { account_key_input: accountKey, payload_input: payload });
       if (error) throw error;
-      setSyncStatus(showStatus ? "Saved to Supabase" : "Synced just now");
+      if (payload === latestPayloadRef.current) {
+        pendingLocalRef.current = false;
+        try { localStorage.setItem("lingosleep-sync-pending", "false"); } catch { setLocalSaveFailed(true); }
+      }
+      setSyncStatus(payload === latestPayloadRef.current ? (showStatus ? "Saved to Supabase" : "Synced just now") : "Changes waiting to sync");
     } catch (error) {
       console.warn("Temporary account sync failed", error);
       setSyncStatus("Sync failed");
     } finally {
+      syncInFlightRef.current = false;
       setIsSyncing(false);
     }
   };
 
   const createTempAccount = async () => {
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
     const code = generateSyncCode();
     setIsSyncing(true);
     try {
       const accountKey = await syncKeyFromCode(code);
-      const payload = createSyncPayload(configRef.current, vocab, history, playlistPositions);
+      const payload = latestPayloadRef.current;
       const { error } = await supabase.rpc("create_temp_account", { account_key_input: accountKey, payload_input: payload });
       if (error) throw error;
       setSyncCode(code);
@@ -1255,24 +1360,37 @@ function App() {
       console.warn("Temporary account creation failed", error);
       setSyncStatus("Sync failed");
     } finally {
+      syncInFlightRef.current = false;
       setIsSyncing(false);
     }
   };
 
   const loadTempAccount = async (code: string) => {
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
     setIsSyncing(true);
+    setSyncStatus("Checking cloud progress");
+    const beforeLoad = latestPayloadRef.current;
     try {
       const accountKey = await syncKeyFromCode(code);
       const { data, error } = await supabase.rpc("get_temp_account", { account_key_input: accountKey });
       if (error) throw error;
-      applySyncPayload(data);
+      if (!data || typeof data !== "object" || data.version !== 1) throw new Error("Invalid cloud progress payload");
       setSyncCode(code);
+      if (playingRef.current || pendingLocalRef.current || progressSignature(beforeLoad) !== progressSignature(latestPayloadRef.current)) {
+        setCloudConflict(readSyncPayload(data));
+        setSyncReady(false);
+        setSyncStatus("Choose which progress to keep");
+        return;
+      }
+      applySyncPayload(data);
       setSyncReady(true);
       setSyncStatus("Loaded remote progress");
     } catch (error) {
       console.warn("Temporary account load failed", error);
       setSyncStatus("Sync failed");
     } finally {
+      syncInFlightRef.current = false;
       setIsSyncing(false);
     }
   };
@@ -1285,15 +1403,41 @@ function App() {
 
   const copySyncCode = async () => {
     if (!syncCode || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(syncCode);
-    setSyncStatus("Sync code copied");
+    try {
+      await navigator.clipboard.writeText(syncCode);
+      setCopyNotice("Sync code copied");
+    } catch (error) {
+      console.warn("Could not copy sync code", error);
+    }
+  };
+
+  const resolveCloudConflict = (useCloud: boolean) => {
+    if (!cloudConflict) return;
+    if (useCloud) {
+      try { localStorage.setItem("lingosleep-before-cloud-replace", JSON.stringify(latestPayloadRef.current)); }
+      catch { setSyncStatus("Could not back up local progress. Cloud replacement cancelled."); return; }
+      if (playingRef.current) stopSession(false);
+      applySyncPayload(cloudConflict);
+    }
+    setCloudConflict(null);
+    setSyncReady(true);
+    setSyncStatus(useCloud ? "Loaded remote progress" : "Changes waiting to sync");
   };
 
   useEffect(() => {
     if (!syncCode || !syncReady) return;
+    setSyncStatus("Changes waiting to sync");
     const timer = window.setTimeout(() => void saveSyncData(), 1200);
     return () => window.clearTimeout(timer);
-  }, [syncCode, syncReady, config, vocab, history, playlistPositions]);
+  }, [syncCode, syncReady, latestPayload]);
+
+  // A change made during a slow request needs a subsequent save, not a false
+  // success badge. Failed requests remain explicit and can be retried manually.
+  useEffect(() => {
+    if (isSyncing || syncStatus !== "Changes waiting to sync" || !syncReady) return;
+    const timer = window.setTimeout(() => void saveSyncData(), 1200);
+    return () => window.clearTimeout(timer);
+  }, [isSyncing, syncStatus, syncReady, latestPayload]);
 
   useEffect(() => {
     if (!syncCode) return;
@@ -1416,7 +1560,8 @@ function App() {
             <RangeControl icon={<Volume2 size={18} />} label={t("Native voice")} value={config.nativeVoiceVolume} onChange={(value) => updateConfig("nativeVoiceVolume", value)} />
             <RangeControl icon={<Waves size={18} />} label={t("Background")} value={config.backgroundVolume} onChange={(value) => updateConfig("backgroundVolume", value)} />
           </ControlGroup>
-          <SyncPanel t={t} syncCode={syncCode} syncCodeInput={syncCodeInput} syncStatus={syncStatus} isSyncing={isSyncing} onCodeInput={setSyncCodeInput} onCreate={createTempAccount} onConnect={connectTempAccount} onCopy={copySyncCode} onSave={() => saveSyncData(syncCode, true)} />
+          <SyncPanel t={t} syncCode={syncCode} syncCodeInput={syncCodeInput} syncStatus={syncStatus} isSyncing={isSyncing} syncReady={syncReady} onCodeInput={setSyncCodeInput} onCreate={createTempAccount} onConnect={connectTempAccount} onCopy={copySyncCode} onSave={() => syncReady ? saveSyncData(syncCode, true) : loadTempAccount(syncCode)} />
+          {copyNotice && <p role="status">{t(copyNotice)}</p>}
         </div>
       </aside>
 
@@ -1426,7 +1571,7 @@ function App() {
             <div className="home-badge">
               <span>{label(config.topic === "all topics" ? config.level : config.topic)}</span>
             </div>
-            <button className="big-play-button" onClick={startSession}>
+            <button className="big-play-button" onClick={startSession} disabled={!playlist.length || savedOrderUnavailable} aria-label={t(config.playbackOrder === "Random" ? "Start random session" : config.playbackOrder === "Start from last left" && completedWords > 0 ? "Continue session" : "Start session")}>
               {config.playbackOrder === "Random" ? <Shuffle size={38} /> : <Play size={38} />}
             </button>
             <p className="home-action-label">
@@ -1436,6 +1581,10 @@ function App() {
                   ? t("Continue session")
                   : t("Start session")}
             </p>
+            {savedOrderUnavailable && <p className="fine-print">{t(vocabularyLoading ? "Loading saved playlist" : "Some saved words are unavailable. Open Playlist and Shuffle to start a new order.")}</p>}
+            {config.playbackOrder === "Start from last left" && !savedOrderUnavailable && resumeWord && (
+              <p className="fine-print">{t("Next word")}: {resumeWord.targetText} · {resumeWord.meanings[config.nativeLanguage]}</p>
+            )}
           </div>
           <div className="home-footer">
             <div className="home-progress">
@@ -1501,7 +1650,7 @@ function App() {
               />
             </div>
             <div className="player-actions">
-              <button className="round-button" onClick={() => (isPaused ? resumeSession() : isPlaying ? pauseSession() : startSession())}>
+              <button className="round-button" aria-label={t(isPlaying && !isPaused ? "Pause session" : "Continue session")} onClick={() => (isPaused ? resumeSession() : isPlaying ? pauseSession() : startSession())}>
                 {isPlaying && !isPaused ? <Pause size={32} /> : <Play size={32} />}
               </button>
               <button className="icon-button" onClick={() => currentItem && toggleFavorite(currentItem.id)}>
@@ -1608,6 +1757,20 @@ function App() {
             setVocab((items) => items.map((item) => (item.id === id ? { ...item, status: nextStatus(item.status || "New") } : item)))
           }
         />
+      )}
+      {step !== "onboarding" && (
+        <section className="save-summary" aria-label={t("Sync account")}>
+          <p role="status">{t(localSaveFailed ? "Device storage failed. Keep this page open." : "Saved on this device")} · {t(syncCode ? syncStatus : "Local only")}</p>
+          {!syncCode && <p className="fine-print">{t("Only on this device. Connect a sync code to use another device.")}</p>}
+          {syncStatus === "Sync failed" && <p className="fine-print">{t("Cloud sync failed. Local progress is kept when device storage is available.")}</p>}
+          {vocabularyLoadFailed && <p className="fine-print">{t("Local vocabulary in use")}</p>}
+          {cloudConflict && <div>
+            <p>{t("This device has unsynced changes. Cloud progress has not replaced them.")}</p>
+            <button className="secondary-button" onClick={() => resolveCloudConflict(false)}>{t("Keep this device and upload")}</button>
+            <button className="secondary-button" onClick={() => resolveCloudConflict(true)}>{t("Use cloud progress instead")}</button>
+          </div>}
+          <button className="text-button" onClick={() => setDrawerOpen(true)}>{t("Sync account")}</button>
+        </section>
       )}
     </main>
   );
@@ -1720,6 +1883,7 @@ function SyncPanel({
   syncCodeInput,
   syncStatus,
   isSyncing,
+  syncReady,
   onCodeInput,
   onCreate,
   onConnect,
@@ -1731,6 +1895,7 @@ function SyncPanel({
   syncCodeInput: string;
   syncStatus: string;
   isSyncing: boolean;
+  syncReady: boolean;
   onCodeInput: (value: string) => void;
   onCreate: () => void;
   onConnect: () => void;
@@ -1751,6 +1916,7 @@ function SyncPanel({
           )}
         </div>
         <p className="sync-status">{t(syncStatus)}</p>
+        <p className="fine-print">{t("Keep your sync code private: anyone with it can access your progress.")}</p>
         <div className="sync-actions">
           {!syncCode ? (
             <>
@@ -1766,7 +1932,7 @@ function SyncPanel({
           ) : (
             <button className="secondary-button" onClick={onSave} disabled={isSyncing}>
               <Cloud size={18} />
-              {t("Save now")}
+              {t(syncReady ? "Save now" : "Retry connection")}
             </button>
           )}
         </div>
