@@ -938,3 +938,14 @@ input[type="range"] {
   min-height: 36px;
   gap: 5px;
 }
+.save-summary {
+  max-width: 42rem;
+  margin: 0 auto 1.5rem;
+  padding: 0.75rem 1rem;
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+.save-summary p { margin: 0.4rem 0; }
+.save-summary .text-button { margin: 0.4rem auto 0; }
+
