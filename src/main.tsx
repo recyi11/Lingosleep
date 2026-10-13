@@ -27,7 +27,6 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { cyclePosition, prioritizeReview, reconcileOrder } from "./playback-progress";
-import { nativeAudioSourcesV2, targetAudioSourcesV2 } from "./audio-v2";
 import {
   vocabSeed,
   normalizeVocabForExam,
@@ -1145,11 +1144,12 @@ function App() {
     if (!isSessionActive(sessionToken)) return;
     const sessionConfig = config;
     const targetSpeechText = sessionConfig.targetLanguage === "Japanese" ? item.reading : item.targetText;
-    // Core word/meaning audio is content-addressed. If a matching v2 asset does not exist yet,
-    // speakIfPlaying falls back to browser TTS instead of risking a stale file for a reused ID.
-    const targetWordAudioPaths = targetAudioSourcesV2(item, "word", sessionConfig.targetVoiceStyle);
+    // Keep speech immediate while content-addressed v2 audio is unavailable.
+    // Delaying browser TTS behind failed MP3 requests can lose the user-gesture
+    // playback allowance on mobile/PWA browsers, leaving only background audio.
+    const targetWordAudioPaths: string[] = [];
     const targetExampleAudioPaths: string[] = [];
-    const nativeMeaningAudioPaths = nativeAudioSourcesV2(item, "meaning", sessionConfig.nativeLanguage, sessionConfig.nativeVoiceStyle);
+    const nativeMeaningAudioPaths: string[] = [];
     const nativeExampleAudioPaths: string[] = [];
     const baseVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
     const targetBoost = sessionConfig.targetLanguage === "Japanese" ? japaneseVoiceBoost : sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
