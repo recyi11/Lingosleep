@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { nativeAudioSourcesV2, targetAudioSourcesV2 } from "./audio-v2";
 import { cyclePosition, prioritizeReview, reconcileOrder } from "./playback-progress";
 import {
   vocabSeed,
@@ -1118,8 +1119,8 @@ function App() {
         return true;
       }
     }
-    await speak(text, lang, volume, rate, voiceStyle);
-    return isSessionActive(sessionToken);
+    console.warn("MP3 playback failed for", { role, lang, text, audioPaths });
+    return false;
   };
 
   const waitIfPlaying = async (ms: number, sessionToken: number) => {
@@ -1144,13 +1145,13 @@ function App() {
     if (!isSessionActive(sessionToken)) return;
     const sessionConfig = config;
     const targetSpeechText = sessionConfig.targetLanguage === "Japanese" ? item.reading : item.targetText;
-    // Keep speech immediate while content-addressed v2 audio is unavailable.
-    // Delaying browser TTS behind failed MP3 requests can lose the user-gesture
-    // playback allowance on mobile/PWA browsers, leaving only background audio.
-    const targetWordAudioPaths: string[] = [];
-    const targetExampleAudioPaths: string[] = [];
-    const nativeMeaningAudioPaths: string[] = [];
-    const nativeExampleAudioPaths: string[] = [];
+    // Core word/meaning audio is content-addressed so a reused vocabulary ID
+    // cannot accidentally play an MP3 generated for older text. Examples still
+    // use the existing bundled/Supabase MP3s until they are migrated to v2.
+    const targetWordAudioPaths = targetAudioSourcesV2(item, "word", sessionConfig.targetVoiceStyle);
+    const targetExampleAudioPaths = styledTargetAudioSources(item.id, "example", sessionConfig.targetVoiceStyle);
+    const nativeMeaningAudioPaths = nativeAudioSourcesV2(item, "meaning", sessionConfig.nativeLanguage, sessionConfig.nativeVoiceStyle);
+    const nativeExampleAudioPaths = nativeAudioSources(item.id, "example", sessionConfig.nativeLanguage, sessionConfig.nativeVoiceStyle);
     const baseVolume = (multiplier = 1) => configRef.current.voiceVolume * multiplier;
     const targetBoost = sessionConfig.targetLanguage === "Japanese" ? japaneseVoiceBoost : sessionConfig.targetLanguage === "Korean" ? koreanVoiceBoost : 1;
     const voiceVolume = (multiplier = 1) => Math.min(1, baseVolume(multiplier) * targetBoost);
@@ -1208,6 +1209,24 @@ function App() {
     setPlayedIds([]);
     playedIdsRef.current = [];
     background.start();
+
+    // Unlock the dedicated voice <audio> element in the same user gesture that
+    // starts the session. Mobile/PWA browsers can otherwise allow the background
+    // player but reject later MP3 play() calls made after async waits.
+    const voiceAudio = currentAudioRef.current || new Audio();
+    currentAudioRef.current = voiceAudio;
+    voiceAudio.preload = "auto";
+    voiceAudio.src = silentAudioUrl(120);
+    voiceAudio.loop = false;
+    voiceAudio.currentTime = 0;
+    voiceAudio.volume = 1;
+    voiceAudio.playbackRate = 1;
+    try {
+      await voiceAudio.play();
+    } catch (error) {
+      console.warn("Voice audio unlock failed", error);
+    }
+
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
 
     const started = Date.now();
